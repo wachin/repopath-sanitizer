@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "repopath-sanitizer"
+version = "0.1.0"
+description = "RepoPath Sanitizer - Scan and fix Git working tree paths that fail on Windows."
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "GPL-3.0-or-later"}
+authors = [{name="Washington Indacochea Delgado"}]
+dependencies = []
+
+[project.optional-dependencies]
+gui = ["PyQt6>=6.4"]
+dev = ["pytest>=7", "pytest-cov>=4"]
+
+[project.scripts]
+repopath-sanitizer = "repopath_sanitizer.__main__:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]

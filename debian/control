@@ -1,0 +1,17 @@
+Source: repopath-sanitizer
+Section: utils
+Priority: optional
+Maintainer: Your Name <you@example.com>
+Build-Depends: debhelper-compat (= 13), dh-python, python3-all, pybuild-plugin-pyproject,
+               python3-pyqt6,
+               python3-pytest <!nocheck>
+Standards-Version: 4.7.0
+Rules-Requires-Root: no
+
+Package: repopath-sanitizer
+Architecture: all
+Depends: ${misc:Depends}, ${python3:Depends}, python3-pyqt6, git
+Description: Scan and fix Git working tree paths for Windows checkout
+ RepoPath Sanitizer scans a local Git working tree on Linux and detects file/folder
+ names that would fail on Windows. It proposes fixes and can apply safe git-aware
+ renames (git mv) to preserve history.

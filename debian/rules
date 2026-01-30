@@ -1,0 +1,9 @@
+#!/usr/bin/make -f
+
+export PYBUILD_NAME=repopath-sanitizer
+
+%:
+	dh $@ --buildsystem=pybuild
+
+override_dh_auto_test:
+	pytest -q

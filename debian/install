@@ -1,0 +1,6 @@
+# Install the app into /usr/lib/<appname>/ (Debian-style for bundled apps)
+usr/bin/repopath-sanitizer
+usr/lib/python3*/dist-packages/repopath_sanitizer
+data/repopath-sanitizer.desktop usr/share/applications/
+data/repopath-sanitizer.svg usr/share/icons/hicolor/scalable/apps/repopath-sanitizer.svg
+translations/* usr/share/repopath-sanitizer/translations/

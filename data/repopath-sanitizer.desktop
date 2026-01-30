@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=RepoPath Sanitizer
+Comment=Scan and fix Git repository paths for Windows compatibility
+Exec=repopath-sanitizer
+Icon=repopath-sanitizer
+Terminal=false
+Categories=Development;Utility;
