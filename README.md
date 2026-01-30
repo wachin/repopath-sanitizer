@@ -1,9 +1,15 @@
+
 # RepoPath Sanitizer
 
 A PyQt6 desktop app (Linux-first) that scans a local Git working tree and finds file/folder paths
 that would fail to check out on Windows. It proposes safe fixes and can apply them using **git-aware renames**
 (`git mv`) to preserve history.
 
+![Debian 12 Tested](https://img.shields.io/badge/Debian-12-tested-blue)
+![Python](https://img.shields.io/badge/Python-3.10+-green)
+![License](https://img.shields.io/badge/License-GPL--3-orange)
+
+---
 
 ## Features
 
@@ -26,23 +32,37 @@ that would fail to check out on Windows. It proposes safe fixes and can apply th
 
 ![Main window dark theme](docs/screenshots/main-window-dark-theme.png)
 
-## Why `pyproject.toml`?
-This project uses a modern `pyproject.toml` (PEP 621) because it:
-- keeps metadata and dependencies in one standard place
-- works well with Debian packaging (dh-python / pybuild) and with pip
-- avoids legacy `setup.py` boilerplate
+---
+
+## Runtime Requirements
+
+RepoPath Sanitizer requires:
+
+- Python 3.10+
+- Git (used for safe `git mv` operations)
+- PyQt6
+
+Install on Debian:
+
+```bash
+sudo apt install python3 python3-venv python3-pyqt6 git
+```
+
+This program was tested on **Debian 12 (Bookworm)**.
+
+---
 
 ## PyQt6 on Debian (VERY IMPORTANT)
 
-On Debian (including **Debian 12**, where this program was tested), installing **PyQt6 via pip** may fail because it tries to build from source and requires a full Qt development environment.
+On Debian, installing **PyQt6 via pip** may fail because it tries to build from source and requires a full Qt development environment.
 
 For this reason, on Debian it is recommended to use **the system PyQt6 package (APT)** together with a virtual environment that can access system packages.
 
-### ✔ Recommended method on Debian
+### Recommended method on Debian
 
 ```bash
 sudo apt update
-sudo apt install python3-pyqt6
+sudo apt install python3 python3-venv python3-pyqt6 git
 
 python3 -m venv .venv --system-site-packages
 source .venv/bin/activate
@@ -53,25 +73,92 @@ pip install -e .[dev] --no-deps
 repopath-sanitizer
 ```
 
-🔹 `--system-site-packages` allows the virtual environment to use PyQt6 installed via APT.
-🔹 `--no-deps` prevents pip from trying to reinstall PyQt6 from PyPI.
+`--system-site-packages` allows the virtual environment to use PyQt6 installed via APT.  
+`--no-deps` prevents pip from trying to reinstall PyQt6 from PyPI.
 
-CLI mode:
+---
+
+## CLI Mode
 
 ```bash
 repopath-sanitizer --cli --repo /path/to/repo --json out.json --text out.txt
 ```
 
-## Debian packaging (template)
+---
 
-See `debian/` and the packaging notes in the end of this README, or run:
+## Safety Notice
+
+This tool performs Git renames (`git mv`).  
+Always review changes with:
+
+```bash
+git status
+git diff
+```
+
+before committing.
+
+---
+
+## How It Works
+
+The scanner:
+
+1. Uses `git ls-files` to enumerate repository paths
+2. Validates each path against Windows filesystem rules
+3. Detects:
+   - forbidden characters
+   - reserved device names
+   - trailing spaces/periods
+   - path length issues
+   - case-insensitive collisions
+   - Unicode normalization conflicts
+4. Proposes safe sanitized paths
+5. Applies fixes using `git mv` to preserve history
+
+---
+
+## Developer Requirements
+
+For development and testing:
+
+```bash
+sudo apt install python3-pytest
+```
+
+---
+
+## Project Structure (for developers)
+
+```
+src/repopath_sanitizer/
+    ui_main.py        # GUI
+    engine.py         # Scan logic
+    pathrules.py      # Windows compatibility rules
+    gitutils.py       # Git operations
+    worker.py         # Background tasks
+    report.py         # JSON/Text reports
+    state.py          # Undo system
+    cli.py            # CLI mode
+```
+
+---
+
+## Debian Packaging Dependencies
+
+To build the `.deb` package you need:
+
+```bash
+sudo apt install debhelper dh-python python3-all pybuild-plugin-pyproject \
+    python3-pyqt6 python3-pytest git
+```
+
+Then build with:
 
 ```bash
 sudo apt build-dep .
 dpkg-buildpackage -us -uc
 ```
-
-(You will need the standard Debian Python packaging toolchain.)
 
 ---
 
@@ -79,42 +166,22 @@ dpkg-buildpackage -us -uc
 
 The application is prepared for internationalization.
 
-### Requirements
-
-Install Qt Linguist (included with Qt Creator):
+Install tools:
 
 ```bash
 sudo apt install qtcreator qttools5-dev-tools qt6-tools-dev-tools
 ```
 
-### Workflow to add a language (example: Spanish)
-
-1. Create a translation file:
+Workflow to add a language:
 
 ```bash
 pylupdate6 src -ts translations/repopath_sanitizer_es.ts
-```
-
-2. Open it in Qt Linguist:
-
-```bash
 linguist translations/repopath_sanitizer_es.ts
-```
-
-3. Translate all texts.
-
-4. Compile to `.qm`:
-
-```bash
 lrelease translations/repopath_sanitizer_es.ts
 ```
 
-5. The resulting `.qm` file will be installed to:
+Translation files (`.qm`) are installed to:
 
 ```
 /usr/share/repopath-sanitizer/translations/
 ```
-
----
-
-
