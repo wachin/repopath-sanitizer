@@ -4,13 +4,35 @@ A PyQt6 desktop app (Linux-first) that scans a local Git working tree and finds 
 that would fail to check out on Windows. It proposes safe fixes and can apply them using **git-aware renames**
 (`git mv`) to preserve history.
 
+
+## Features
+
+- Detects Windows-incompatible paths in Git repositories
+- Git-aware renames (`git mv`) to preserve history
+- Collision detection (case-insensitive + Unicode NFC)
+- Long path detection and shortening strategies
+- GUI + CLI modes
+- Safe undo system
+
+---
+
+## Screenshots
+
+### Main Window (Light Theme)
+
+![Main window light theme](docs/screenshots/main-window-light-theme.png)
+
+### Main Window (Dark Theme)
+
+![Main window dark theme](docs/screenshots/main-window-dark-theme.png)
+
 ## Why `pyproject.toml`?
 This project uses a modern `pyproject.toml` (PEP 621) because it:
 - keeps metadata and dependencies in one standard place
 - works well with Debian packaging (dh-python / pybuild) and with pip
 - avoids legacy `setup.py` boilerplate
 
-## 🐧 PyQt6 on Debian (VERY IMPORTANT)
+## PyQt6 on Debian (VERY IMPORTANT)
 
 On Debian (including **Debian 12**, where this program was tested), installing **PyQt6 via pip** may fail because it tries to build from source and requires a full Qt development environment.
 
@@ -53,7 +75,7 @@ dpkg-buildpackage -us -uc
 
 ---
 
-## 🌐 Translations (Qt Linguist / Qt Creator)
+## Translations (Qt Linguist / Qt Creator)
 
 The application is prepared for internationalization.
 
