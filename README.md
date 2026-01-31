@@ -76,6 +76,14 @@ repopath-sanitizer
 `--system-site-packages` allows the virtual environment to use PyQt6 installed via APT.  
 `--no-deps` prevents pip from trying to reinstall PyQt6 from PyPI.
 
+
+The second time you want to launch the program, just put:
+
+```bash
+source .venv/bin/activate
+repopath-sanitizer
+```
+
 ---
 
 ## CLI Mode
