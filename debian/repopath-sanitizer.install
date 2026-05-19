@@ -1,0 +1,5 @@
+# Install the Python package
+usr/lib/python3*/dist-packages/repopath_sanitizer
+
+# Install the launcher script
+usr/bin/repopath-sanitizer

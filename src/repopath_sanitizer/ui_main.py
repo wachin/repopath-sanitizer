@@ -524,7 +524,7 @@ class MainWindow(QMainWindow):
         from .engine import plan_renames
         from .gitutils import git_mv
 
-        planned_ops, warnings = plan_renames(self.items, config=self.config)
+        planned_ops, warnings = plan_renames(self.items, config=self.config, existing_paths=self.meta.get("all_paths", []))
         applied_ops: List[Tuple[str,str]] = []
         for src,dst in planned_ops:
             ok, msg = git_mv(repo, src, dst, dry_run=dry_run)
@@ -543,7 +543,7 @@ class MainWindow(QMainWindow):
             return
         repo = self.repo_path
         from .engine import plan_renames
-        planned_ops, warnings = plan_renames(self.items, config=self.config)
+        planned_ops, warnings = plan_renames(self.items, config=self.config, existing_paths=self.meta.get("all_paths", []))
         data = to_json(repo, self.meta, self.items, planned_ops=planned_ops, applied_ops=[], extra_warnings=warnings)
         js = json_dumps(data)
         txt = to_text_summary(repo, planned_ops, warnings)

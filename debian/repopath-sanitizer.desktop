@@ -1,0 +1,12 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=RepoPath Sanitizer
+Comment=Scan Git repositories for Windows-incompatible paths
+Comment[en]=Scan Git repositories for Windows-incompatible paths
+Exec=repopath-sanitizer
+Icon=repopath-sanitizer
+Terminal=false
+Categories=Development;Utility;Git;
+Keywords=git;windows;path;sanitizer;fix;
+StartupNotify=true

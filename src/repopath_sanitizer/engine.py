@@ -15,7 +15,6 @@ from .pathrules import (
     windows_casefold_path,
     nfc_path,
     generate_fix_options,
-    disambiguate_targets,
     shorten_path,
 )
 
@@ -128,6 +127,9 @@ def build_scan(repo: Path, *, config: ScanConfig, include_ignored: bool = False,
         "config": asdict(config),
         "include_ignored": include_ignored,
         "scan_submodules": scan_submodules,
+        "tracked_files": files,
+        "derived_dirs": dirs,
+        "all_paths": all_paths,
         "collisions": {
             "case_insensitive": case_coll,
             "nfc": nfc_coll,
@@ -139,33 +141,57 @@ def build_scan(repo: Path, *, config: ScanConfig, include_ignored: bool = False,
         # Caller may run build_scan on submodules separately if desired.
     return items, meta
 
-def plan_renames(items: List[ScanItem], *, config: ScanConfig) -> Tuple[List[Tuple[str,str]], List[str]]:
+def _is_git_tracked_item(item: ScanItem) -> bool:
+    return item.item_type in (ItemType.FILE, ItemType.SYMLINK)
+
+def _add_numeric_suffix(rel_path: str, n: int) -> str:
+    parent, slash, name = rel_path.rpartition("/")
+    root, dot, ext = name.rpartition(".")
+    if dot and root:
+        new_name = f"{root}_{n}.{ext}"
+    else:
+        new_name = f"{name}_{n}"
+    return f"{parent}{slash}{new_name}" if slash else new_name
+
+def plan_renames(items: List[ScanItem], *, config: ScanConfig, existing_paths: Optional[Iterable[str]] = None) -> Tuple[List[Tuple[str,str]], List[str]]:
     """Return (rename_ops, warnings). rename_ops is list of (src_rel, dst_rel)."""
     selected = [it for it in items if it.selected and it.proposed_fix and it.proposed_fix != it.rel_path]
-    # Deepest first to avoid parent/child rename conflicts
-    selected.sort(key=lambda it: it.rel_path.count("/"), reverse=True)
-
-    # Detect target collisions (case-insensitive)
-    targets = [it.proposed_fix for it in selected]
-    disamb = disambiguate_targets(targets)
-
-    ops: List[Tuple[str,str]] = []
     warnings: List[str] = []
 
+    skipped_dirs = [it.rel_path for it in selected if it.item_type == ItemType.FOLDER]
+    if skipped_dirs:
+        warnings.append(
+            "Folder-only rename plans are skipped; Git tracks files, so contained tracked files carry directory fixes."
+        )
+
+    selected = [it for it in selected if _is_git_tracked_item(it)]
+    # Shallow first keeps planned output stable while each operation remains file-level.
+    selected.sort(key=lambda it: (it.rel_path.count("/"), it.rel_path))
+
+    ops: List[Tuple[str,str]] = []
+    existing_ci = {
+        p.casefold()
+        for p in (existing_paths or [])
+        if p not in {it.rel_path for it in selected}
+    }
     used_ci: Set[str] = set()
     for it in selected:
-        dst = disamb.get(it.proposed_fix, it.proposed_fix)
-        if dst != it.proposed_fix:
-            warnings.append(f"Collision: {it.proposed_fix!r} adjusted to {dst!r}")
+        dst = it.proposed_fix
         # Extra guard: avoid .git paths
         if it.rel_path.startswith(".git/") or dst.startswith(".git/") or it.rel_path == ".git" or dst == ".git":
             warnings.append(f"Refusing to rename .git internals: {it.rel_path} -> {dst}")
             continue
         k = dst.casefold()
-        if k in used_ci:
-            # Shouldn't happen due to disambiguate, but guard anyway.
-            dst = dst + "_x"
-            warnings.append(f"Additional collision guard applied: {it.rel_path!r} -> {dst!r}")
+        suffix = 1
+        while k in used_ci:
+            dst = _add_numeric_suffix(it.proposed_fix, suffix)
+            k = dst.casefold()
+            suffix += 1
+        if dst != it.proposed_fix:
+            warnings.append(f"Collision: {it.proposed_fix!r} adjusted to {dst!r}")
+        if k in existing_ci:
+            warnings.append(f"Refusing target that already exists in repository: {it.rel_path!r} -> {dst!r}")
+            continue
         used_ci.add(k)
         ops.append((it.rel_path, dst))
     return ops, warnings

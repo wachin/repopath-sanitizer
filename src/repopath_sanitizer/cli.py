@@ -30,7 +30,7 @@ def run_cli(args: argparse.Namespace) -> int:
 
     cfg = ScanConfig(max_path=args.max_path, normalize_unicode_nfc=args.nfc, collapse_spaces=args.collapse_spaces)
     items, meta = build_scan(repo, config=cfg, include_ignored=args.include_ignored, scan_submodules=args.scan_submodules)
-    planned_ops, warnings = plan_renames(items, config=cfg)
+    planned_ops, warnings = plan_renames(items, config=cfg, existing_paths=meta.get("all_paths", []))
     data = to_json(str(repo), meta, items, planned_ops=planned_ops, applied_ops=[], extra_warnings=warnings)
     js = json_dumps(data)
     txt = to_text_summary(str(repo), planned_ops, warnings)
@@ -42,4 +42,4 @@ def run_cli(args: argparse.Namespace) -> int:
 
     if args.text:
         Path(args.text).write_text(txt, encoding="utf-8")
-    return 0
+    return 1 if items else 0

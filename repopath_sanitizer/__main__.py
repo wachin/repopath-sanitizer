@@ -5,6 +5,7 @@ import sys
 from .cli import build_parser, run_cli
 from .constants import APP_NAME, ORG_NAME
 
+
 def main() -> int:
     parser = build_parser()
     args = parser.parse_args()
@@ -19,9 +20,10 @@ def main() -> int:
     app = QApplication(sys.argv)
     app.setApplicationName(APP_NAME)
     app.setOrganizationName(ORG_NAME)
-    w = MainWindow()
-    w.show()
+    window = MainWindow()
+    window.show()
     return app.exec()
+
 
 if __name__ == "__main__":
     raise SystemExit(main())

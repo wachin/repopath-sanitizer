@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import Iterable, List, Tuple
 
-from PyQt6.QtCore import QObject, pyqtSignal, QThread
+from PyQt6.QtCore import QObject, pyqtSignal
 
 from .engine import build_scan, plan_renames
 from .models import ScanItem
@@ -54,17 +53,18 @@ class ApplyWorker(QObject):
     finished = pyqtSignal(list, list, list)  # planned_ops, applied_ops, warnings
     failed = pyqtSignal(str)
 
-    def __init__(self, repo: Path, items: List[ScanItem], config: ScanConfig, dry_run: bool):
+    def __init__(self, repo: Path, items: List[ScanItem], config: ScanConfig, dry_run: bool, existing_paths: Iterable[str] = ()):
         super().__init__()
         self.repo = repo
         self.items = items
         self.config = config
         self.dry_run = dry_run
+        self.existing_paths = list(existing_paths)
 
     def run(self):
         try:
             from .gitutils import git_mv
-            planned_ops, warnings = plan_renames(self.items, config=self.config)
+            planned_ops, warnings = plan_renames(self.items, config=self.config, existing_paths=self.existing_paths)
             applied: List[tuple[str,str]] = []
             total = max(1, len(planned_ops))
             for i,(src,dst) in enumerate(planned_ops, start=1):
