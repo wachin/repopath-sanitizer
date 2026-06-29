@@ -54,6 +54,26 @@ COL_ISSUES = 2
 COL_FIX = 3
 COL_STATUS = 4
 
+ISSUE_LABELS = {
+    "PATH_TOO_LONG": "Relative path too long",
+    "SEGMENT_TOO_LONG": "File/folder name too long",
+    "CHECKOUT_PATH_TOO_LONG": "Estimated Windows checkout path too long",
+}
+
+ISSUE_EXPLANATIONS = {
+    "PATH_TOO_LONG": (
+        "The repository-relative path is already too long. Even before adding the Windows clone folder, "
+        "this path exceeds the configured limit."
+    ),
+    "SEGMENT_TOO_LONG": (
+        "At least one individual file or folder name is too long for the configured Windows segment limit."
+    ),
+    "CHECKOUT_PATH_TOO_LONG": (
+        "The final path is estimated to be too long on Windows after combining the checkout base folder, "
+        "the repository name, and this nested path."
+    ),
+}
+
 
 class SettingsDialog(QDialog):
     def __init__(self, parent: QWidget, config: ScanConfig):
@@ -371,8 +391,10 @@ class MainWindow(QMainWindow):
             self.table.setCellWidget(row, COL_TYPE, chk)
 
             self.table.setItem(row, COL_PATH, QTableWidgetItem(it.rel_path))
-            issues_txt = "; ".join([i.code for i in it.issues])
-            self.table.setItem(row, COL_ISSUES, QTableWidgetItem(issues_txt))
+            issues_txt = "; ".join([self._format_issue_label(i.code) for i in it.issues])
+            issue_item = QTableWidgetItem(issues_txt)
+            issue_item.setToolTip("\n".join(f"{self._format_issue_label(i.code)}: {i.message}" for i in it.issues))
+            self.table.setItem(row, COL_ISSUES, issue_item)
             self.table.setItem(row, COL_FIX, QTableWidgetItem(it.proposed_fix or ""))
             self.table.setItem(row, COL_STATUS, QTableWidgetItem(it.status))
 
@@ -487,11 +509,19 @@ class MainWindow(QMainWindow):
         it = self.items[row]
         self._show_details(it)
 
+    @staticmethod
+    def _format_issue_label(code: str) -> str:
+        return ISSUE_LABELS.get(code, code.replace("_", " ").title())
+
     def _show_details(self, it: ScanItem):
         self.details_title.setText(f"Details: {it.rel_path}")
         lines = []
         for iss in it.issues:
-            lines.append(f"- [{iss.code}] {iss.message}")
+            label = self._format_issue_label(iss.code)
+            explanation = ISSUE_EXPLANATIONS.get(iss.code)
+            lines.append(f"- [{label}] {iss.message}")
+            if explanation:
+                lines.append(f"  Why it matters: {explanation}")
         self.details_issues.setPlainText("\n".join(lines) if lines else "(no issues)")
         self.fix_combo.blockSignals(True)
         self.fix_combo.clear()
