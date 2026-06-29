@@ -142,6 +142,40 @@ git diff
 
 before committing.
 
+## Shared Git Hook
+
+This repository also includes a shared `pre-commit` hook in `.githooks/pre-commit`.
+
+If you want to use the same protection in **all** your repositories on Linux, use the global hook package in [global-hooks/README.md](global-hooks/README.md).
+
+It blocks commits when staged paths contain Windows-incompatible problems such as:
+
+- forbidden characters
+- reserved Windows device names
+- trailing spaces or trailing periods
+- file or folder names that exceed the configured segment limit
+- repository-relative paths that exceed the configured path limit
+- estimated Windows checkout paths that become too long after adding the clone base folder
+
+To enable it in this repository:
+
+```bash
+git config core.hooksPath .githooks
+chmod +x .githooks/pre-commit
+```
+
+To enable it globally for all your repositories, see:
+
+- [global-hooks/README.md](global-hooks/README.md)
+
+Optional environment variables for stricter or more realistic checks:
+
+```bash
+export REPOPATH_SANITIZER_MAX_PATH=260
+export REPOPATH_SANITIZER_MAX_SEGMENT=255
+export REPOPATH_SANITIZER_CHECKOUT_ROOT='C:\Users\Juan\Documents\Projects'
+```
+
 ---
 
 ## How It Works

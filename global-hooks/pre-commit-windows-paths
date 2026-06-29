@@ -1,0 +1,129 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+python3 - <<'PY'
+from __future__ import annotations
+
+import os
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+RESERVED = {
+    "CON", "PRN", "AUX", "NUL",
+    *{f"COM{i}" for i in range(1, 10)},
+    *{f"LPT{i}" for i in range(1, 10)},
+}
+INVALID_CHARS_RE = re.compile(r'[<>:"\\|?*\x00-\x1f]')
+
+
+def git_output(*args: str, text: bool = False) -> str | bytes:
+    proc = subprocess.run(
+        ["git", *args],
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=text,
+    )
+    return proc.stdout
+
+
+def staged_paths() -> list[str]:
+    raw = git_output("diff", "--cached", "--name-only", "-z", "--diff-filter=ACMR")
+    assert isinstance(raw, bytes)
+    return [part.decode("utf-8", "surrogateescape") for part in raw.split(b"\x00") if part]
+
+
+def repo_root() -> Path:
+    out = git_output("rev-parse", "--show-toplevel", text=True)
+    assert isinstance(out, str)
+    return Path(out.strip())
+
+
+def estimate_windows_checkout_length(rel_path: str, *, checkout_root: str, repo_name: str) -> int:
+    base = checkout_root.rstrip("\\/")
+    rel_win = rel_path.replace("/", "\\")
+    return len(f"{base}\\{repo_name}\\{rel_win}")
+
+
+def validate_rel_path(rel_path: str, *, max_path: int, max_segment: int, checkout_root: str, repo_name: str) -> list[tuple[str, str]]:
+    issues: list[tuple[str, str]] = []
+    segments = rel_path.split("/")
+
+    for seg in segments:
+        if seg in ("", ".", ".."):
+            continue
+        if INVALID_CHARS_RE.search(seg):
+            issues.append(("FORBIDDEN_CHARS", f"Segment contains Windows-forbidden characters: {seg!r}"))
+        if seg.endswith(" ") or seg.endswith("."):
+            issues.append(("TRAILING_SPACE_PERIOD", f"Segment ends with a trailing space or period: {seg!r}"))
+        stem = seg.split(".", 1)[0].upper()
+        if stem in RESERVED:
+            issues.append(("RESERVED_DEVICE", f"Segment is a reserved Windows device name: {seg!r}"))
+        if len(seg) > max_segment:
+            issues.append((
+                "SEGMENT_TOO_LONG",
+                f"File or folder name length {len(seg)} exceeds configured limit {max_segment}: {seg!r}",
+            ))
+
+    if len(rel_path) >= max_path:
+        issues.append((
+            "PATH_TOO_LONG",
+            f"Repository-relative path length {len(rel_path)} exceeds configured limit {max_path}.",
+        ))
+
+    checkout_len = estimate_windows_checkout_length(
+        rel_path,
+        checkout_root=checkout_root,
+        repo_name=repo_name,
+    )
+    if checkout_len >= max_path:
+        issues.append((
+            "CHECKOUT_PATH_TOO_LONG",
+            f"Estimated Windows checkout path length {checkout_len} exceeds configured limit {max_path} using base {checkout_root!r}.",
+        ))
+
+    return issues
+
+
+def main() -> int:
+    root = repo_root()
+    repo_name = root.name
+    max_path = int(os.environ.get("REPOPATH_SANITIZER_MAX_PATH", "260"))
+    max_segment = int(os.environ.get("REPOPATH_SANITIZER_MAX_SEGMENT", "255"))
+    checkout_root = os.environ.get("REPOPATH_SANITIZER_CHECKOUT_ROOT", r"C:\repo")
+
+    problems: list[tuple[str, str, str]] = []
+    for rel_path in staged_paths():
+        for code, message in validate_rel_path(
+            rel_path,
+            max_path=max_path,
+            max_segment=max_segment,
+            checkout_root=checkout_root,
+            repo_name=repo_name,
+        ):
+            problems.append((rel_path, code, message))
+
+    if not problems:
+        return 0
+
+    print("Commit blocked. Windows-incompatible staged paths were detected:\n", file=sys.stderr)
+    current = None
+    for rel_path, code, message in problems:
+        if rel_path != current:
+            print(f"- {rel_path}", file=sys.stderr)
+            current = rel_path
+        print(f"  [{code}] {message}", file=sys.stderr)
+
+    print("\nFix the paths before committing.", file=sys.stderr)
+    print("Recommended checks:", file=sys.stderr)
+    print("  - trailing spaces or periods", file=sys.stderr)
+    print("  - reserved names like CON, AUX, COM1, LPT1", file=sys.stderr)
+    print("  - long file/folder names", file=sys.stderr)
+    print("  - long deep paths that may fail when cloned on Windows", file=sys.stderr)
+    return 1
+
+
+raise SystemExit(main())
+PY

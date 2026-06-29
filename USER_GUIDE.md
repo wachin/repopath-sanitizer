@@ -140,6 +140,34 @@ If the repository has uncommitted changes, the application will warn you before 
 2. You can abort the scan.
 3. You can choose to stash the changes automatically.
 
+## Git Pre-Commit Hook
+
+If you want to stop bad paths before they even enter the history, this repository includes a shared hook at `.githooks/pre-commit`.
+
+Enable it with:
+
+```bash
+git config core.hooksPath .githooks
+chmod +x .githooks/pre-commit
+```
+
+The hook checks staged paths before each commit and blocks the commit if it finds:
+
+- forbidden Windows characters
+- trailing spaces or periods
+- reserved device names
+- file or folder names that are too long
+- repository-relative paths that are too long
+- estimated final Windows checkout paths that are too long
+
+You can tune the limits with environment variables:
+
+```bash
+export REPOPATH_SANITIZER_MAX_PATH=260
+export REPOPATH_SANITIZER_MAX_SEGMENT=255
+export REPOPATH_SANITIZER_CHECKOUT_ROOT='C:\Users\Juan\Documents\Projects'
+```
+
 ## Next Steps After Fixing
 
 After applying fixes to your repository:
