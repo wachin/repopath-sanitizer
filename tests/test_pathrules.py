@@ -12,6 +12,18 @@ def test_trailing_space_period():
     codes = {c for c,_ in issues}
     assert "TRAILING_SPACE_PERIOD" in codes
 
+def test_windows_checkout_breaking_trailing_period_directory():
+    cfg = ScanConfig()
+    issues = validate_rel_path("Promts/Acerca de.../About Juan y Washington.txt", config=cfg)
+    codes = {c for c,_ in issues}
+    assert "TRAILING_SPACE_PERIOD" in codes
+
+def test_auto_fix_trims_directory_that_ends_with_periods():
+    cfg = ScanConfig()
+    opts = generate_fix_options("Promts/Acerca de.../About Juan y Washington.txt", config=cfg)
+    auto = [o for o in opts if o[0] == "auto"][0]
+    assert auto[2] == "Promts/Acerca de/About Juan y Washington.txt"
+
 def test_reserved_device():
     cfg = ScanConfig()
     issues = validate_rel_path("CON.txt", config=cfg)

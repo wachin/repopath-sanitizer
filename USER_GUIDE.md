@@ -153,6 +153,12 @@ Windows forbids the following characters in file and folder names:
 
 Windows forbids trailing spaces and periods in file and folder names.
 
+Real example already covered by the tool:
+
+- `Promts/Acerca de.../About Juan y Washington.txt`
+
+In that path, the failure is caused by the folder `Acerca de...`. Even though Linux accepts that name, Windows rejects it because the segment ends with periods. In Git for Windows this usually appears as an `invalid path` error during clone or checkout.
+
 ### Reserved Device Names
 
 Windows reserves the following device names (case-insensitive, with or without extension):
@@ -185,6 +191,11 @@ The application suggests multiple fix strategies for different issues:
 ### Trailing Spaces and Periods
 
 1. **Trim trailing spaces/periods**: Removes trailing spaces or periods from the name.
+
+For the previous example, the recommended sanitized result is:
+
+- Original: `Promts/Acerca de.../About Juan y Washington.txt`
+- Fixed: `Promts/Acerca de/About Juan y Washington.txt`
 
 ### Reserved Names
 

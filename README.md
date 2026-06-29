@@ -23,6 +23,28 @@ that would fail to check out on Windows. It proposes safe fixes and can apply th
 - Safe undo system
 - Results context menu for opening paths in the file manager or copying paths
 
+## Fixed Case: Windows Clone Failure Caused by Trailing Periods
+
+This project now documents and tests an important real-world case that breaks `git clone` or `git checkout` on Windows:
+
+- Problematic path example: `Promts/Acerca de.../About Juan y Washington.txt`
+
+The problem was not the file `About Juan y Washington.txt` itself. The real issue was the directory name `Acerca de...`, because Windows does not allow file or folder names to end with a period (`.`) or a space.
+
+On Linux, Git can store and check out that path without trouble. On Windows, the clone may download successfully but fail during checkout with an error similar to:
+
+```text
+error: invalid path 'Promts/Acerca de.../About Juan y Washington.txt'
+fatal: unable to checkout working tree
+```
+
+RepoPath Sanitizer already had the trailing-space/trailing-period rule, and this case is now explicitly covered in tests and documentation so it remains protected against regressions.
+
+The automatic fix is to trim the invalid trailing periods from the affected segment:
+
+- Original: `Promts/Acerca de.../About Juan y Washington.txt`
+- Fixed: `Promts/Acerca de/About Juan y Washington.txt`
+
 ---
 
 ## Screenshots
@@ -131,6 +153,8 @@ The scanner:
    - Unicode normalization conflicts
 4. Proposes safe sanitized paths
 5. Applies fixes using `git mv` to preserve history
+
+For the Windows checkout failure described above, the relevant rule is `trailing spaces/periods`. If a path segment ends in `.` or space, the sanitizer flags it and proposes a trimmed replacement that Windows can store safely.
 
 ---
 
