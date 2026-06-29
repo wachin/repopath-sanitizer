@@ -170,6 +170,13 @@ Windows reserves the following device names (case-insensitive, with or without e
 
 Windows has a maximum path length of 260 characters by default. Individual file or folder names are commonly limited to 255 characters. The application reports both total path length issues and individual name segments that exceed the configured limit.
 
+The tool now also estimates the final Windows checkout path, not just the repository-relative path. That means it can warn about repositories that become too long only after adding:
+
+- the Windows destination folder
+- the repository name
+- many nested folders
+- long file names
+
 ### Case-Insensitive Collisions
 
 Windows is case-insensitive, so files with names that differ only by case (e.g., README.md vs readme.md) will collide.

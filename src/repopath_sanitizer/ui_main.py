@@ -68,6 +68,7 @@ class SettingsDialog(QDialog):
         self.max_segment = QSpinBox()
         self.max_segment.setRange(12, 1024)
         self.max_segment.setValue(config.max_segment)
+        self.checkout_root = QLineEdit(config.windows_checkout_root)
 
         self.chk_nfc = QCheckBox("Normalize Unicode to NFC (optional strategy)")
         self.chk_nfc.setChecked(config.normalize_unicode_nfc)
@@ -76,6 +77,7 @@ class SettingsDialog(QDialog):
 
         form.addRow("Windows max path length (warn/shorten):", self.max_path)
         form.addRow("Windows max file/folder name length:", self.max_segment)
+        form.addRow("Estimated Windows checkout root:", self.checkout_root)
         form.addRow(self.chk_nfc)
         form.addRow(self.chk_spaces)
         layout.addLayout(form)
@@ -96,6 +98,7 @@ class SettingsDialog(QDialog):
             max_segment=int(self.max_segment.value()),
             normalize_unicode_nfc=self.chk_nfc.isChecked(),
             collapse_spaces=self.chk_spaces.isChecked(),
+            windows_checkout_root=self.checkout_root.text().strip() or r"C:\repo",
         )
 
 
@@ -112,6 +115,7 @@ class MainWindow(QMainWindow):
         self.config = ScanConfig(
             max_path=int(self.settings.value("max_path", DEFAULT_WIN_MAX_PATH)),
             max_segment=int(self.settings.value("max_segment", DEFAULT_WIN_MAX_SEGMENT)),
+            windows_checkout_root=str(self.settings.value("windows_checkout_root", r"C:\repo")),
         )
 
         self._scan_thread: Optional[QThread] = None
@@ -264,6 +268,7 @@ class MainWindow(QMainWindow):
             self.config = dlg.get_config()
             self.settings.setValue("max_path", self.config.max_path)
             self.settings.setValue("max_segment", self.config.max_segment)
+            self.settings.setValue("windows_checkout_root", self.config.windows_checkout_root)
 
     def _pick_repo(self):
         d = QFileDialog.getExistingDirectory(self, "Select repository folder", str(Path.home()))

@@ -58,6 +58,7 @@ class ScanConfig:
     max_segment: int = DEFAULT_WIN_MAX_SEGMENT
     normalize_unicode_nfc: bool = False
     collapse_spaces: bool = False
+    windows_checkout_root: str = r"C:\repo"
 
 @dataclass
 class SegmentFix:
@@ -111,6 +112,14 @@ def validate_rel_path(rel_path: str, *, config: Optional[ScanConfig] = None) -> 
     if len(rel_path) >= config.max_path:
         issues.append(("PATH_TOO_LONG", f"Relative path length {len(rel_path)} exceeds configured limit {config.max_path}."))
     return issues
+
+def build_windows_checkout_path(rel_path: str, *, repo_name: str, checkout_root: str) -> str:
+    base = checkout_root.rstrip("\\/")
+    rel_win = rel_path.replace("/", "\\")
+    return f"{base}\\{repo_name}\\{rel_win}"
+
+def estimate_windows_checkout_length(rel_path: str, *, repo_name: str, checkout_root: str) -> int:
+    return len(build_windows_checkout_path(rel_path, repo_name=repo_name, checkout_root=checkout_root))
 
 def fix_segment(seg: str, *, config: ScanConfig) -> SegmentFix:
     out = seg

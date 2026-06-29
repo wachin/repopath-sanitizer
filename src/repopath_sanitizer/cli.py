@@ -16,6 +16,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--scan-submodules", action="store_true", help="List submodules (does not recursively scan in CLI)")
     p.add_argument("--max-path", type=int, default=260, help="Windows max path length threshold")
     p.add_argument("--max-segment", type=int, default=255, help="Windows file/folder name length threshold")
+    p.add_argument(
+        "--checkout-root",
+        type=str,
+        default=r"C:\repo",
+        help="Base Windows folder used to estimate final checkout path length",
+    )
     p.add_argument("--nfc", action="store_true", help="Enable Unicode NFC normalization strategy")
     p.add_argument("--collapse-spaces", action="store_true", help="Collapse multiple spaces strategy")
     p.add_argument("--json", type=str, default="", help="Write JSON report to this path")
@@ -34,6 +40,7 @@ def run_cli(args: argparse.Namespace) -> int:
         max_segment=args.max_segment,
         normalize_unicode_nfc=args.nfc,
         collapse_spaces=args.collapse_spaces,
+        windows_checkout_root=args.checkout_root,
     )
     items, meta = build_scan(repo, config=cfg, include_ignored=args.include_ignored, scan_submodules=args.scan_submodules)
     planned_ops, warnings = plan_renames(

@@ -16,6 +16,8 @@ from .pathrules import (
     nfc_path,
     generate_fix_options,
     shorten_path,
+    build_windows_checkout_path,
+    estimate_windows_checkout_length,
 )
 
 def _dedupe_paths(paths: Iterable[str]) -> List[str]:
@@ -69,6 +71,7 @@ def build_scan(repo: Path, *, config: ScanConfig, include_ignored: bool = False,
     nfc_coll = detect_collisions_nfc(all_paths)
 
     # Per item validation
+    repo_name = repo.name
     for rel in sorted(all_paths, key=lambda s: (s.count("/"), s)):
         # Never touch .git internals (shouldn't appear in git ls-files, but double guard)
         if rel == ".git" or rel.startswith(".git/"):
@@ -81,6 +84,25 @@ def build_scan(repo: Path, *, config: ScanConfig, include_ignored: bool = False,
 
         issues_raw = validate_rel_path(rel, config=config)
         issues: List[Issue] = [Issue(code=c, message=m) for c,m in issues_raw]
+
+        checkout_len = estimate_windows_checkout_length(
+            rel,
+            repo_name=repo_name,
+            checkout_root=config.windows_checkout_root,
+        )
+        if checkout_len >= config.max_path:
+            checkout_path = build_windows_checkout_path(
+                rel,
+                repo_name=repo_name,
+                checkout_root=config.windows_checkout_root,
+            )
+            issues.append(Issue(
+                code="CHECKOUT_PATH_TOO_LONG",
+                message=(
+                    f"Estimated Windows checkout path length {checkout_len} exceeds configured limit "
+                    f"{config.max_path}: {checkout_path}"
+                ),
+            ))
 
         # collision issues
         k_ci = windows_casefold_path(rel)
@@ -130,6 +152,7 @@ def build_scan(repo: Path, *, config: ScanConfig, include_ignored: bool = False,
         "config": asdict(config),
         "include_ignored": include_ignored,
         "scan_submodules": scan_submodules,
+        "repo_name": repo_name,
         "tracked_files": tracked_files,
         "untracked_files": untracked_files,
         "ignored_files": ignored_files,

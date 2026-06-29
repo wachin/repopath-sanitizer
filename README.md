@@ -19,6 +19,7 @@ that would fail to check out on Windows. It proposes safe fixes and can apply th
 - Git-aware renames (`git mv`) to preserve history
 - Collision detection (case-insensitive + Unicode NFC)
 - Long path and long file/folder name detection with shortening strategies
+- Estimated Windows checkout path detection using a configurable base folder
 - GUI + CLI modes
 - Safe undo system
 - Results context menu for opening paths in the file manager or copying paths
@@ -155,6 +156,15 @@ The scanner:
 5. Applies fixes using `git mv` to preserve history
 
 For the Windows checkout failure described above, the relevant rule is `trailing spaces/periods`. If a path segment ends in `.` or space, the sanitizer flags it and proposes a trimmed replacement that Windows can store safely.
+
+The scanner also detects repositories that may fail on Windows because the final checkout path becomes too long after combining:
+
+- the Windows base folder
+- the repository folder name
+- deep nesting of folders and subfolders
+- long file or folder names
+
+This matters because a repository may look acceptable on Linux while still failing on Windows when cloned under a path such as `C:\Users\Name\Documents\Projects\...`.
 
 ---
 

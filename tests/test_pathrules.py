@@ -1,4 +1,19 @@
-from repopath_sanitizer.pathrules import ScanConfig, validate_rel_path, generate_fix_options, windows_casefold_path, nfc_path, disambiguate_targets, shorten_path, shorten_segment
+from pathlib import Path
+import subprocess
+
+from repopath_sanitizer.engine import build_scan
+from repopath_sanitizer.pathrules import (
+    ScanConfig,
+    build_windows_checkout_path,
+    disambiguate_targets,
+    estimate_windows_checkout_length,
+    generate_fix_options,
+    nfc_path,
+    shorten_path,
+    shorten_segment,
+    validate_rel_path,
+    windows_casefold_path,
+)
 
 def test_forbidden_chars():
     cfg = ScanConfig()
@@ -76,3 +91,34 @@ def test_shorten_segment():
     short = shorten_segment(("segment" * 20) + ".md", 32)
     assert len(short) <= 32
     assert short.endswith(".md")
+
+def test_windows_checkout_path_builder():
+    path = build_windows_checkout_path(
+        "deep/folder/file.txt",
+        repo_name="AI-dev",
+        checkout_root=r"C:\Users\Juan\Documents",
+    )
+    assert path == r"C:\Users\Juan\Documents\AI-dev\deep\folder\file.txt"
+
+def test_windows_checkout_length_estimator():
+    length = estimate_windows_checkout_length(
+        "deep/folder/file.txt",
+        repo_name="AI-dev",
+        checkout_root=r"C:\Users\Juan\Documents",
+    )
+    assert length == len(r"C:\Users\Juan\Documents\AI-dev\deep\folder\file.txt")
+
+def test_build_scan_detects_estimated_windows_checkout_path_too_long(tmp_path: Path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.run(["git", "init"], cwd=repo, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    long_rel = "/".join(["nested-folder"] * 12) + "/file.txt"
+    file_path = repo / long_rel
+    file_path.parent.mkdir(parents=True)
+    file_path.write_text("x", encoding="utf-8")
+
+    cfg = ScanConfig(max_path=120, windows_checkout_root=r"C:\Users\Juan\Documents\Projects")
+    items, _meta = build_scan(repo, config=cfg)
+    target = next(item for item in items if item.rel_path == long_rel)
+    codes = {issue.code for issue in target.issues}
+    assert "CHECKOUT_PATH_TOO_LONG" in codes
