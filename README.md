@@ -1,3 +1,4 @@
+En Linux puedes probar el programa directamente con: `python3 -m repopath_sanitizer`
 
 # RepoPath Sanitizer
 
@@ -14,11 +15,13 @@ that would fail to check out on Windows. It proposes safe fixes and can apply th
 ## Features
 
 - Detects Windows-incompatible paths in Git repositories
+- Reports tracked files and normal untracked files; ignored files are optional
 - Git-aware renames (`git mv`) to preserve history
 - Collision detection (case-insensitive + Unicode NFC)
-- Long path detection and shortening strategies
+- Long path and long file/folder name detection with shortening strategies
 - GUI + CLI modes
 - Safe undo system
+- Results context menu for opening paths in the file manager or copying paths
 
 ---
 
@@ -42,10 +45,10 @@ RepoPath Sanitizer requires:
 - Git (used for safe `git mv` operations)
 - PyQt6
 
-Install on Debian:
+Install on Debian 12:
 
 ```bash
-sudo apt install python3 python3-venv python3-pyqt6 git
+sudo apt install python3 python3-pyqt6 git
 ```
 
 This program was tested on **Debian 12 (Bookworm)**.
@@ -56,9 +59,13 @@ This program was tested on **Debian 12 (Bookworm)**.
 
 On Debian, installing **PyQt6 via pip** may fail because it tries to build from source and requires a full Qt development environment.
 
-For this reason, on Debian it is recommended to use **the system PyQt6 package (APT)** together with a virtual environment that can access system packages.
+For this reason, on Debian it is recommended to use **the system PyQt6 package (APT)**. Using `pip` and a virtual environment is optional; if your dependencies are already installed from the Debian 12 repositories, you can test the program directly without creating a `venv`:
 
-### Recommended method on Debian
+```bash
+python3 -m repopath_sanitizer
+```
+
+### Optional editable install with pip
 
 ```bash
 sudo apt update
@@ -112,13 +119,14 @@ before committing.
 
 The scanner:
 
-1. Uses `git ls-files` to enumerate repository paths
+1. Uses `git ls-files` to enumerate tracked files and normal untracked files
 2. Validates each path against Windows filesystem rules
 3. Detects:
    - forbidden characters
    - reserved device names
    - trailing spaces/periods
-   - path length issues
+   - total path length issues
+   - individual file/folder name length issues
    - case-insensitive collisions
    - Unicode normalization conflicts
 4. Proposes safe sanitized paths

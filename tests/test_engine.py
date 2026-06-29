@@ -1,4 +1,6 @@
-from repopath_sanitizer.engine import plan_renames
+import subprocess
+
+from repopath_sanitizer.engine import build_scan, plan_renames
 from repopath_sanitizer.models import FixOption, Issue, ItemType, ScanItem
 from repopath_sanitizer.pathrules import ScanConfig
 
@@ -46,3 +48,49 @@ def test_plan_renames_refuses_existing_target():
 
     assert ops == []
     assert any("already exists" in warning for warning in warnings)
+
+
+def test_build_scan_reports_untracked_trailing_space_file(tmp_path):
+    subprocess.run(["git", "init"], cwd=tmp_path, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    bad_path = tmp_path / "bad-name "
+    bad_path.write_text("content", encoding="utf-8")
+
+    items, meta = build_scan(tmp_path, config=ScanConfig())
+
+    assert "bad-name " in meta["untracked_files"]
+    assert any(item.rel_path == "bad-name " for item in items)
+    assert any(
+        issue.code == "TRAILING_SPACE_PERIOD"
+        for item in items
+        if item.rel_path == "bad-name "
+        for issue in item.issues
+    )
+
+
+def test_plan_renames_skips_untracked_files_when_tracked_paths_given():
+    items = [_item("bad-name ", "bad-name")]
+
+    ops, warnings = plan_renames(items, config=ScanConfig(), tracked_paths=[])
+
+    assert ops == []
+    assert any("Untracked files" in warning for warning in warnings)
+
+
+def test_build_scan_reports_long_folder_and_file_names(tmp_path):
+    subprocess.run(["git", "init"], cwd=tmp_path, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    long_folder = "folder-" + ("a" * 30)
+    long_file = "file-" + ("b" * 30) + ".txt"
+    nested = tmp_path / long_folder
+    nested.mkdir()
+    (nested / long_file).write_text("content", encoding="utf-8")
+
+    items, meta = build_scan(tmp_path, config=ScanConfig(max_segment=20))
+
+    assert f"{long_folder}/{long_file}" in meta["untracked_files"]
+    assert any(
+        item.rel_path == long_folder and any(issue.code == "SEGMENT_TOO_LONG" for issue in item.issues)
+        for item in items
+    )
+    file_item = next(item for item in items if item.rel_path == f"{long_folder}/{long_file}")
+    assert any(issue.code == "SEGMENT_TOO_LONG" for issue in file_item.issues)
+    assert all(len(segment) <= 20 for segment in file_item.proposed_fix.split("/"))

@@ -7,7 +7,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Set, Tuple
 
-from .gitutils import list_tracked_files, list_ignored_files, list_submodules
+from .gitutils import list_tracked_files, list_untracked_files, list_ignored_files, list_submodules
 from .models import ItemType, Issue, FixOption, ScanItem
 from .pathrules import (
     ScanConfig,
@@ -18,13 +18,16 @@ from .pathrules import (
     shorten_path,
 )
 
-def _iter_worktree_paths(repo: Path, *, include_ignored: bool) -> List[str]:
+def _dedupe_paths(paths: Iterable[str]) -> List[str]:
+    return list(dict.fromkeys(paths))
+
+def _iter_worktree_paths(repo: Path, *, include_ignored: bool) -> Tuple[List[str], List[str], List[str], List[str]]:
     tracked = list_tracked_files(repo)
+    untracked = list_untracked_files(repo)
+    ignored: List[str] = []
     if include_ignored:
         ignored = list_ignored_files(repo)
-        # include ignored only if they exist (they might have been deleted)
-        return tracked + ignored
-    return tracked
+    return tracked, untracked, ignored, _dedupe_paths([*tracked, *untracked, *ignored])
 
 def _dirs_from_files(files: List[str]) -> Set[str]:
     dirs: Set[str] = set()
@@ -55,7 +58,7 @@ def detect_collisions_nfc(paths: List[str]) -> Dict[str, List[str]]:
     return out
 
 def build_scan(repo: Path, *, config: ScanConfig, include_ignored: bool = False, scan_submodules: bool = False) -> Tuple[List[ScanItem], Dict]:
-    files = _iter_worktree_paths(repo, include_ignored=include_ignored)
+    tracked_files, untracked_files, ignored_files, files = _iter_worktree_paths(repo, include_ignored=include_ignored)
     dirs = sorted(_dirs_from_files(files))
     items: List[ScanItem] = []
 
@@ -127,7 +130,9 @@ def build_scan(repo: Path, *, config: ScanConfig, include_ignored: bool = False,
         "config": asdict(config),
         "include_ignored": include_ignored,
         "scan_submodules": scan_submodules,
-        "tracked_files": files,
+        "tracked_files": tracked_files,
+        "untracked_files": untracked_files,
+        "ignored_files": ignored_files,
         "derived_dirs": dirs,
         "all_paths": all_paths,
         "collisions": {
@@ -153,7 +158,7 @@ def _add_numeric_suffix(rel_path: str, n: int) -> str:
         new_name = f"{name}_{n}"
     return f"{parent}{slash}{new_name}" if slash else new_name
 
-def plan_renames(items: List[ScanItem], *, config: ScanConfig, existing_paths: Optional[Iterable[str]] = None) -> Tuple[List[Tuple[str,str]], List[str]]:
+def plan_renames(items: List[ScanItem], *, config: ScanConfig, existing_paths: Optional[Iterable[str]] = None, tracked_paths: Optional[Iterable[str]] = None) -> Tuple[List[Tuple[str,str]], List[str]]:
     """Return (rename_ops, warnings). rename_ops is list of (src_rel, dst_rel)."""
     selected = [it for it in items if it.selected and it.proposed_fix and it.proposed_fix != it.rel_path]
     warnings: List[str] = []
@@ -165,6 +170,14 @@ def plan_renames(items: List[ScanItem], *, config: ScanConfig, existing_paths: O
         )
 
     selected = [it for it in selected if _is_git_tracked_item(it)]
+    if tracked_paths is not None:
+        tracked_set = set(tracked_paths)
+        skipped_untracked = [it.rel_path for it in selected if it.rel_path not in tracked_set]
+        if skipped_untracked:
+            warnings.append(
+                "Untracked files are reported but not renamed automatically. Add them to Git or rename them manually first."
+            )
+        selected = [it for it in selected if it.rel_path in tracked_set]
     # Shallow first keeps planned output stable while each operation remains file-level.
     selected.sort(key=lambda it: (it.rel_path.count("/"), it.rel_path))
 

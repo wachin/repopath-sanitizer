@@ -138,7 +138,8 @@ The path validator is responsible for detecting Windows-incompatible paths. It c
 - Forbidden characters in path segments
 - Trailing spaces and periods
 - Reserved device names
-- Path length issues
+- Total path length issues
+- Individual file/folder name length issues
 - Case-insensitive collisions
 - Unicode normalization pitfalls
 
@@ -199,9 +200,9 @@ Windows reserves the following device names (case-insensitive, with or without e
 - COM1..COM9
 - LPT1..LPT9
 
-### D. Path Length
+### D. Path and Name Length
 
-Windows has a maximum path length of 260 characters (by default). The application warns if paths exceed this limit.
+Windows has a maximum path length of 260 characters by default. Individual file or folder names are commonly limited to 255 characters. The application reports both total path length issues and individual name segments that exceed the configured limit.
 
 ### E. Case-Insensitive Collisions
 

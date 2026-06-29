@@ -65,6 +65,15 @@ def list_tracked_files(repo: Path) -> List[str]:
     return [s.decode("utf-8", "surrogateescape") for s in raw.split(b"\x00") if s]
 
 
+def list_untracked_files(repo: Path) -> List[str]:
+    # Non-ignored untracked files are useful during development before git add.
+    p = _run_git(repo, ["ls-files", "-z", "--others", "--exclude-standard"], check=True)
+    raw = p.stdout
+    if not raw:
+        return []
+    return [s.decode("utf-8", "surrogateescape") for s in raw.split(b"\x00") if s]
+
+
 def list_ignored_files(repo: Path) -> List[str]:
     # Files ignored by .gitignore / exclude, also including untracked
     p = _run_git(repo, ["ls-files", "-z", "--others", "-i", "--exclude-standard"], check=True)

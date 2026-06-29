@@ -53,18 +53,24 @@ class ApplyWorker(QObject):
     finished = pyqtSignal(list, list, list)  # planned_ops, applied_ops, warnings
     failed = pyqtSignal(str)
 
-    def __init__(self, repo: Path, items: List[ScanItem], config: ScanConfig, dry_run: bool, existing_paths: Iterable[str] = ()):
+    def __init__(self, repo: Path, items: List[ScanItem], config: ScanConfig, dry_run: bool, existing_paths: Iterable[str] = (), tracked_paths: Iterable[str] = ()):
         super().__init__()
         self.repo = repo
         self.items = items
         self.config = config
         self.dry_run = dry_run
         self.existing_paths = list(existing_paths)
+        self.tracked_paths = list(tracked_paths)
 
     def run(self):
         try:
             from .gitutils import git_mv
-            planned_ops, warnings = plan_renames(self.items, config=self.config, existing_paths=self.existing_paths)
+            planned_ops, warnings = plan_renames(
+                self.items,
+                config=self.config,
+                existing_paths=self.existing_paths,
+                tracked_paths=self.tracked_paths,
+            )
             applied: List[tuple[str,str]] = []
             total = max(1, len(planned_ops))
             for i,(src,dst) in enumerate(planned_ops, start=1):

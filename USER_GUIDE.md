@@ -27,7 +27,7 @@ repopath-sanitizer
 
 1. Select a Git repository (see above).
 2. Click the "Scan Repository" button.
-3. The application will scan all tracked files in the repository.
+3. The application will scan tracked files and normal untracked files in the repository.
 4. A progress bar will show the scan progress.
 
 ### Cancelling a Scan
@@ -108,7 +108,19 @@ To open a file or folder in your file manager:
 
 1. Right-click on an item in the results table.
 2. Select "Open in File Manager" from the context menu.
-3. The file manager will open and navigate to the selected item.
+3. The app will try the system file manager first, including `exo-open --launch FileManager` on Xfce-based systems, then fall back to the desktop default opener.
+
+To copy a problematic path:
+
+1. Right-click on an item in the results table.
+2. Select "Copy Path" to copy the absolute path.
+3. Select "Copy Relative Path" to copy the repository-relative path.
+
+## Untracked and Ignored Files
+
+Normal untracked files are reported because they often reveal problems before you commit them. Ignored files are skipped unless you enable "Include ignored files".
+
+Automatic fixes use `git mv`, so untracked files are reported but not renamed automatically. Add them to Git or rename them manually first.
 
 ## Uncommitted Changes
 
@@ -148,9 +160,9 @@ Windows reserves the following device names (case-insensitive, with or without e
 - COM1..COM9
 - LPT1..LPT9
 
-### Path Length
+### Path and Name Length
 
-Windows has a maximum path length of 260 characters (by default). The application warns if paths exceed this limit.
+Windows has a maximum path length of 260 characters by default. Individual file or folder names are commonly limited to 255 characters. The application reports both total path length issues and individual name segments that exceed the configured limit.
 
 ### Case-Insensitive Collisions
 

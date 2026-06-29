@@ -15,6 +15,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--include-ignored", action="store_true", help="Include .gitignore ignored files")
     p.add_argument("--scan-submodules", action="store_true", help="List submodules (does not recursively scan in CLI)")
     p.add_argument("--max-path", type=int, default=260, help="Windows max path length threshold")
+    p.add_argument("--max-segment", type=int, default=255, help="Windows file/folder name length threshold")
     p.add_argument("--nfc", action="store_true", help="Enable Unicode NFC normalization strategy")
     p.add_argument("--collapse-spaces", action="store_true", help="Collapse multiple spaces strategy")
     p.add_argument("--json", type=str, default="", help="Write JSON report to this path")
@@ -28,9 +29,19 @@ def run_cli(args: argparse.Namespace) -> int:
         return 2
     repo = repo_root(repo)
 
-    cfg = ScanConfig(max_path=args.max_path, normalize_unicode_nfc=args.nfc, collapse_spaces=args.collapse_spaces)
+    cfg = ScanConfig(
+        max_path=args.max_path,
+        max_segment=args.max_segment,
+        normalize_unicode_nfc=args.nfc,
+        collapse_spaces=args.collapse_spaces,
+    )
     items, meta = build_scan(repo, config=cfg, include_ignored=args.include_ignored, scan_submodules=args.scan_submodules)
-    planned_ops, warnings = plan_renames(items, config=cfg, existing_paths=meta.get("all_paths", []))
+    planned_ops, warnings = plan_renames(
+        items,
+        config=cfg,
+        existing_paths=meta.get("all_paths", []),
+        tracked_paths=meta.get("tracked_files", []),
+    )
     data = to_json(str(repo), meta, items, planned_ops=planned_ops, applied_ops=[], extra_warnings=warnings)
     js = json_dumps(data)
     txt = to_text_summary(str(repo), planned_ops, warnings)

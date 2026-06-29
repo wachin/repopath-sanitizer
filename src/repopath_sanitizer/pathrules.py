@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-import os
 import re
 import unicodedata
 from dataclasses import dataclass
-from typing import Dict, Iterable, List, Optional, Set, Tuple
+from typing import Dict, List, Optional, Tuple
 
-from .constants import DEFAULT_WIN_MAX_PATH
+from .constants import DEFAULT_WIN_MAX_PATH, DEFAULT_WIN_MAX_SEGMENT
 
 FORBIDDEN_CHARS = set('<>:"/\\|?*')
 # Control chars 0-31
@@ -56,6 +55,7 @@ def nfc_path(rel_path: str) -> str:
 @dataclass
 class ScanConfig:
     max_path: int = DEFAULT_WIN_MAX_PATH
+    max_segment: int = DEFAULT_WIN_MAX_SEGMENT
     normalize_unicode_nfc: bool = False
     collapse_spaces: bool = False
 
@@ -65,7 +65,29 @@ class SegmentFix:
     fixed: str
     changes: List[str]
 
-def validate_segments(segments: List[str]) -> List[Tuple[str, str]]:
+def _hash_suffix(s: str) -> str:
+    import hashlib
+    return hashlib.sha1(s.encode("utf-8", "surrogateescape")).hexdigest()[:6]
+
+def shorten_segment(seg: str, max_len: int) -> str:
+    """Shorten one path component while keeping a stable hash suffix."""
+    if len(seg) <= max_len:
+        return seg
+
+    suffix = "-" + _hash_suffix(seg)
+    root, dot, ext = seg.rpartition(".")
+    ext_part = dot + ext if dot and root and len(ext) <= 32 else ""
+    base = root if ext_part else seg
+
+    keep = max(1, max_len - len(suffix) - len(ext_part))
+    shortened_base = base[:keep].rstrip(" .")
+    if not shortened_base:
+        shortened_base = base[:keep]
+    return f"{shortened_base}{suffix}{ext_part}"[:max_len]
+
+def validate_segments(segments: List[str], *, config: Optional[ScanConfig] = None) -> List[Tuple[str, str]]:
+    if config is None:
+        config = ScanConfig()
     issues: List[Tuple[str, str]] = []
     for seg in segments:
         if seg in ("", ".", ".."):
@@ -76,13 +98,15 @@ def validate_segments(segments: List[str]) -> List[Tuple[str, str]]:
             issues.append(("TRAILING_SPACE_PERIOD", f"Segment ends with a trailing space or period: {seg!r}"))
         if _is_reserved_device(seg):
             issues.append(("RESERVED_DEVICE", f"Segment is a reserved Windows device name: {seg!r}"))
+        if len(seg) > config.max_segment:
+            issues.append(("SEGMENT_TOO_LONG", f"Segment length {len(seg)} exceeds configured limit {config.max_segment}: {seg!r}"))
     return issues
 
 def validate_rel_path(rel_path: str, *, config: Optional[ScanConfig] = None) -> List[Tuple[str, str]]:
     if config is None:
         config = ScanConfig()
     segments = rel_path.split("/")
-    issues = validate_segments(segments)
+    issues = validate_segments(segments, config=config)
     # length warning is handled at full path stage; include code here for UI
     if len(rel_path) >= config.max_path:
         issues.append(("PATH_TOO_LONG", f"Relative path length {len(rel_path)} exceeds configured limit {config.max_path}."))
@@ -118,6 +142,13 @@ def fix_segment(seg: str, *, config: ScanConfig) -> SegmentFix:
         out2 = out + "_"
         out = out2
         changes.append("Append '_' to reserved device name")
+
+    # Long path segment
+    if len(out) > config.max_segment:
+        out2 = shorten_segment(out, config.max_segment)
+        if out2 != out:
+            out = out2
+            changes.append(f"Shorten segment to <= {config.max_segment} chars")
 
     # Collapse multiple spaces (optional)
     if config.collapse_spaces:
@@ -198,8 +229,7 @@ def shorten_path(rel_path: str, max_len: int) -> str:
     segs = rel_path.split("/")
     # Try to truncate longest segment(s)
     def h(s: str) -> str:
-        import hashlib
-        return hashlib.sha1(s.encode("utf-8","surrogateescape")).hexdigest()[:6]
+        return _hash_suffix(s)
     for i in range(len(segs)):
         if len("/".join(segs)) <= max_len:
             break

@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import json
+import shutil
+import subprocess
 from dataclasses import asdict
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-from PyQt6.QtCore import Qt, QSettings, QSize
-from PyQt6.QtGui import QAction, QIcon
+from PyQt6.QtCore import Qt, QSettings, QSize, QUrl
+from PyQt6.QtGui import QAction, QDesktopServices, QIcon
 from PyQt6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -19,6 +21,7 @@ from PyQt6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMainWindow,
+    QMenu,
     QMessageBox,
     QPushButton,
     QProgressBar,
@@ -35,7 +38,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from .constants import APP_NAME, ORG_NAME, DEFAULT_WIN_MAX_PATH
+from .constants import APP_NAME, ORG_NAME, DEFAULT_WIN_MAX_PATH, DEFAULT_WIN_MAX_SEGMENT
 from .gitutils import is_git_repo, repo_root, has_uncommitted_changes, stash_push, stash_pop
 from .models import ScanItem
 from .pathrules import ScanConfig
@@ -62,6 +65,9 @@ class SettingsDialog(QDialog):
         self.max_path = QSpinBox()
         self.max_path.setRange(120, 4096)
         self.max_path.setValue(config.max_path)
+        self.max_segment = QSpinBox()
+        self.max_segment.setRange(12, 1024)
+        self.max_segment.setValue(config.max_segment)
 
         self.chk_nfc = QCheckBox("Normalize Unicode to NFC (optional strategy)")
         self.chk_nfc.setChecked(config.normalize_unicode_nfc)
@@ -69,6 +75,7 @@ class SettingsDialog(QDialog):
         self.chk_spaces.setChecked(config.collapse_spaces)
 
         form.addRow("Windows max path length (warn/shorten):", self.max_path)
+        form.addRow("Windows max file/folder name length:", self.max_segment)
         form.addRow(self.chk_nfc)
         form.addRow(self.chk_spaces)
         layout.addLayout(form)
@@ -86,6 +93,7 @@ class SettingsDialog(QDialog):
     def get_config(self) -> ScanConfig:
         return ScanConfig(
             max_path=int(self.max_path.value()),
+            max_segment=int(self.max_segment.value()),
             normalize_unicode_nfc=self.chk_nfc.isChecked(),
             collapse_spaces=self.chk_spaces.isChecked(),
         )
@@ -101,7 +109,10 @@ class MainWindow(QMainWindow):
         self.repo_path = ""
         self.items: List[ScanItem] = []
         self.meta: Dict = {}
-        self.config = ScanConfig(max_path=int(self.settings.value("max_path", DEFAULT_WIN_MAX_PATH)))
+        self.config = ScanConfig(
+            max_path=int(self.settings.value("max_path", DEFAULT_WIN_MAX_PATH)),
+            max_segment=int(self.settings.value("max_segment", DEFAULT_WIN_MAX_SEGMENT)),
+        )
 
         self._scan_thread: Optional[QThread] = None
         self._scan_worker: Optional[ScanWorker] = None
@@ -178,6 +189,8 @@ class MainWindow(QMainWindow):
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
         self.table.itemSelectionChanged.connect(self._on_selection_changed)
+        self.table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.table.customContextMenuRequested.connect(self._show_results_context_menu)
         self.table.horizontalHeader().setStretchLastSection(True)
         self.table.setColumnWidth(0, 90)
         self.table.setColumnWidth(1, 360)
@@ -250,6 +263,7 @@ class MainWindow(QMainWindow):
         if dlg.exec():
             self.config = dlg.get_config()
             self.settings.setValue("max_path", self.config.max_path)
+            self.settings.setValue("max_segment", self.config.max_segment)
 
     def _pick_repo(self):
         d = QFileDialog.getExistingDirectory(self, "Select repository folder", str(Path.home()))
@@ -359,6 +373,74 @@ class MainWindow(QMainWindow):
 
         if self.items:
             self.table.selectRow(0)
+
+    def _item_for_row(self, row: int) -> Optional[ScanItem]:
+        if 0 <= row < len(self.items):
+            return self.items[row]
+        return None
+
+    def _show_results_context_menu(self, pos):
+        row = self.table.indexAt(pos).row()
+        item = self._item_for_row(row)
+        if item is None:
+            return
+
+        self.table.selectRow(row)
+        menu = QMenu(self)
+        act_open = menu.addAction("Open in File Manager")
+        act_copy = menu.addAction("Copy Path")
+        act_copy_rel = menu.addAction("Copy Relative Path")
+
+        chosen = menu.exec(self.table.viewport().mapToGlobal(pos))
+        if chosen == act_open:
+            self._open_item_in_file_manager(item)
+        elif chosen == act_copy:
+            self._copy_item_path(item, absolute=True)
+        elif chosen == act_copy_rel:
+            self._copy_item_path(item, absolute=False)
+
+    def _open_item_in_file_manager(self, item: ScanItem):
+        path = Path(item.abs_path)
+        if path.exists() and path.is_dir():
+            open_path = path
+        elif path.exists():
+            open_path = path.parent
+        else:
+            open_path = path.parent
+
+        if not open_path.exists():
+            QMessageBox.warning(self, "Path not found", f"Could not find:\n{path}")
+            return
+
+        if self._open_directory_with_system_file_manager(open_path):
+            return
+
+        if not QDesktopServices.openUrl(QUrl.fromLocalFile(str(open_path))):
+            QMessageBox.warning(self, "Open failed", f"Could not open:\n{open_path}")
+
+    def _open_directory_with_system_file_manager(self, path: Path) -> bool:
+        commands: List[List[str]] = []
+
+        if shutil.which("exo-open"):
+            commands.append(["exo-open", "--launch", "FileManager", str(path)])
+
+        for executable in ("thunar", "nemo", "nautilus", "dolphin", "caja", "pcmanfm", "pcmanfm-qt"):
+            if shutil.which(executable):
+                commands.append([executable, str(path)])
+
+        for command in commands:
+            try:
+                subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                return True
+            except OSError:
+                continue
+
+        return False
+
+    def _copy_item_path(self, item: ScanItem, *, absolute: bool):
+        text = item.abs_path if absolute else item.rel_path
+        QApplication.clipboard().setText(text)
+        self.statusBar().showMessage("Path copied to clipboard.", 3000)
 
     def _on_row_checked(self, row: int, state: int):
         if 0 <= row < len(self.items):
@@ -524,7 +606,12 @@ class MainWindow(QMainWindow):
         from .engine import plan_renames
         from .gitutils import git_mv
 
-        planned_ops, warnings = plan_renames(self.items, config=self.config, existing_paths=self.meta.get("all_paths", []))
+        planned_ops, warnings = plan_renames(
+            self.items,
+            config=self.config,
+            existing_paths=self.meta.get("all_paths", []),
+            tracked_paths=self.meta.get("tracked_files", []),
+        )
         applied_ops: List[Tuple[str,str]] = []
         for src,dst in planned_ops:
             ok, msg = git_mv(repo, src, dst, dry_run=dry_run)
@@ -543,7 +630,12 @@ class MainWindow(QMainWindow):
             return
         repo = self.repo_path
         from .engine import plan_renames
-        planned_ops, warnings = plan_renames(self.items, config=self.config, existing_paths=self.meta.get("all_paths", []))
+        planned_ops, warnings = plan_renames(
+            self.items,
+            config=self.config,
+            existing_paths=self.meta.get("all_paths", []),
+            tracked_paths=self.meta.get("tracked_files", []),
+        )
         data = to_json(repo, self.meta, self.items, planned_ops=planned_ops, applied_ops=[], extra_warnings=warnings)
         js = json_dumps(data)
         txt = to_text_summary(repo, planned_ops, warnings)

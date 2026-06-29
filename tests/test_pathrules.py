@@ -1,7 +1,4 @@
-import unicodedata
-import pytest
-
-from repopath_sanitizer.pathrules import ScanConfig, validate_rel_path, generate_fix_options, windows_casefold_path, nfc_path, disambiguate_targets, shorten_path
+from repopath_sanitizer.pathrules import ScanConfig, validate_rel_path, generate_fix_options, windows_casefold_path, nfc_path, disambiguate_targets, shorten_path, shorten_segment
 
 def test_forbidden_chars():
     cfg = ScanConfig()
@@ -49,3 +46,21 @@ def test_shorten_path():
     long = "a/" + ("verylongsegmentname" * 20) + "/b.txt"
     short = shorten_path(long, 120)
     assert len(short) <= 120
+
+def test_long_segment_detected():
+    cfg = ScanConfig(max_segment=20)
+    issues = validate_rel_path("folder/" + ("a" * 30) + ".txt", config=cfg)
+    codes = {c for c,_ in issues}
+    assert "SEGMENT_TOO_LONG" in codes
+
+def test_long_segment_auto_fix_keeps_extension():
+    cfg = ScanConfig(max_segment=24)
+    opts = generate_fix_options(("a" * 40) + ".txt", config=cfg)
+    auto = [o for o in opts if o[0] == "auto"][0]
+    assert len(auto[2]) <= 24
+    assert auto[2].endswith(".txt")
+
+def test_shorten_segment():
+    short = shorten_segment(("segment" * 20) + ".md", 32)
+    assert len(short) <= 32
+    assert short.endswith(".md")
