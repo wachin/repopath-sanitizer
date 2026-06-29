@@ -30,6 +30,8 @@ repopath-sanitizer
 3. The application will scan tracked files and normal untracked files in the repository.
 4. A progress bar will show the scan progress.
 
+If you want more realistic Windows length warnings, open **Settings** and adjust the estimated Windows checkout root. This lets the tool calculate the final checkout path using the folder where the repository would actually be cloned on Windows.
+
 ### Cancelling a Scan
 
 To cancel an ongoing scan, click the "Cancel" button.
@@ -46,6 +48,12 @@ The results table shows all files and folders with Windows-incompatible paths:
 - **Proposed Fix**: A suggested fix for the issues.
 - **Status**: The current status of the fix (pending, fixed, skipped).
 
+For path-length issues, the table now distinguishes three different cases:
+
+- **Relative path too long**: the repository-relative path is already too long.
+- **File/folder name too long**: one individual segment exceeds the configured per-name limit.
+- **Estimated Windows checkout path too long**: the final path would become too long only after adding the Windows clone base folder and repository name.
+
 ### Details Panel
 
 When you select an item in the results table, the details panel on the right shows:
@@ -54,6 +62,8 @@ When you select an item in the results table, the details panel on the right sho
 2. **Fix Options**: Multiple fix strategies you can choose from.
 3. **Preview**: A preview of what the path would look like after applying the fix.
 4. **Warnings**: Any warnings about collisions, reserved names, or path length.
+
+For the three path-length cases above, the details panel also explains why each one matters, so you can tell whether the problem is the whole relative path, a single long segment, or the final Windows checkout destination.
 
 ## Fixing Issues
 
@@ -222,6 +232,12 @@ With output options:
 
 ```bash
 repopath-sanitizer --cli --repo /path/to/repository --json report.json --text report.txt
+```
+
+To estimate Windows checkout failures more accurately for deep folders and long names, you can also set the expected Windows clone base folder:
+
+```bash
+repopath-sanitizer --cli --repo /path/to/repository --checkout-root "C:\Users\Juan\Documents\Projects"
 ```
 
 ## Troubleshooting

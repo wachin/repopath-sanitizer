@@ -84,6 +84,8 @@ repopath-sanitizer
 6. Apply fixes as needed.
 7. Export reports if desired.
 
+If your main concern is Windows clone failures caused by deep folder nesting or long names, open **Settings** first and set the expected Windows checkout root. That improves detection of final checkout paths that become too long only after cloning into a real Windows folder.
+
 ### CLI Mode
 
 For automated scanning without the GUI:
@@ -96,6 +98,12 @@ With output options:
 
 ```bash
 repopath-sanitizer --cli --repo /path/to/repository --json report.json --text report.txt
+```
+
+To estimate the final Windows clone path more accurately:
+
+```bash
+repopath-sanitizer --cli --repo /path/to/repository --checkout-root "C:\Users\Juan\Documents\Projects"
 ```
 
 ## Next Steps

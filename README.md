@@ -122,6 +122,12 @@ repopath-sanitizer
 repopath-sanitizer --cli --repo /path/to/repo --json out.json --text out.txt
 ```
 
+If you want the scan to estimate the real Windows clone destination more accurately, set the expected base folder:
+
+```bash
+repopath-sanitizer --cli --repo /path/to/repo --checkout-root "C:\Users\Juan\Documents\Projects"
+```
+
 ---
 
 ## Safety Notice
@@ -150,6 +156,7 @@ The scanner:
    - trailing spaces/periods
    - total path length issues
    - individual file/folder name length issues
+   - estimated final Windows checkout path length issues
    - case-insensitive collisions
    - Unicode normalization conflicts
 4. Proposes safe sanitized paths
@@ -165,6 +172,12 @@ The scanner also detects repositories that may fail on Windows because the final
 - long file or folder names
 
 This matters because a repository may look acceptable on Linux while still failing on Windows when cloned under a path such as `C:\Users\Name\Documents\Projects\...`.
+
+In the GUI, these length-related issues are shown separately so they are easier to understand:
+
+- `Relative path too long`
+- `File/folder name too long`
+- `Estimated Windows checkout path too long`
 
 ---
 
