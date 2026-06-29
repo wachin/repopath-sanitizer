@@ -1,0 +1,88 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+export PYTHONPATH="${REPO_ROOT}/src${PYTHONPATH:+:${PYTHONPATH}}"
+
+python3 - <<'PY'
+from __future__ import annotations
+
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+from repopath_sanitizer.pathrules import ScanConfig, estimate_windows_checkout_length, validate_rel_path
+
+
+def _git_cached_paths() -> list[str]:
+    proc = subprocess.run(
+        ["git", "diff", "--cached", "--name-only", "-z", "--diff-filter=ACMR"],
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    raw = proc.stdout
+    if not raw:
+        return []
+    return [part.decode("utf-8", "surrogateescape") for part in raw.split(b"\x00") if part]
+
+
+def main() -> int:
+    repo_root = Path(
+        subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        ).stdout.strip()
+    )
+    repo_name = repo_root.name
+    cfg = ScanConfig(
+        max_path=int(os.environ.get("REPOPATH_SANITIZER_MAX_PATH", "260")),
+        max_segment=int(os.environ.get("REPOPATH_SANITIZER_MAX_SEGMENT", "255")),
+        windows_checkout_root=os.environ.get("REPOPATH_SANITIZER_CHECKOUT_ROOT", r"C:\repo"),
+    )
+
+    staged_paths = _git_cached_paths()
+    problems: list[tuple[str, str, str]] = []
+
+    for rel_path in staged_paths:
+        issues = validate_rel_path(rel_path, config=cfg)
+        for code, message in issues:
+            problems.append((rel_path, code, message))
+
+        checkout_len = estimate_windows_checkout_length(
+            rel_path,
+            repo_name=repo_name,
+            checkout_root=cfg.windows_checkout_root,
+        )
+        if checkout_len >= cfg.max_path:
+            problems.append((
+                rel_path,
+                "CHECKOUT_PATH_TOO_LONG",
+                (
+                    f"Estimated Windows checkout path length {checkout_len} exceeds configured limit "
+                    f"{cfg.max_path} using base {cfg.windows_checkout_root!r}."
+                ),
+            ))
+
+    if not problems:
+        return 0
+
+    print("Commit blocked. Windows-incompatible staged paths were detected:\n", file=sys.stderr)
+    current_path = None
+    for rel_path, code, message in problems:
+        if rel_path != current_path:
+            print(f"- {rel_path}", file=sys.stderr)
+            current_path = rel_path
+        print(f"  [{code}] {message}", file=sys.stderr)
+
+    print("\nFix the paths before committing.", file=sys.stderr)
+    print("You can also scan the repository with `repopath-sanitizer` for guided fixes.", file=sys.stderr)
+    return 1
+
+
+raise SystemExit(main())
+PY
