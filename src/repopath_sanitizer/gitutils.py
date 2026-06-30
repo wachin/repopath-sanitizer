@@ -117,11 +117,35 @@ def list_submodules(repo: Path) -> List[Path]:
 
 
 def git_mv(repo: Path, src_rel: str, dst_rel: str, *, dry_run: bool = False) -> Tuple[bool, str]:
+    src_path = repo / src_rel
+    dst_path = repo / dst_rel
+
+    if not dry_run:
+        dst_path.parent.mkdir(parents=True, exist_ok=True)
+
     args = ["mv"]
     if dry_run:
         args.append("-n")
     args.extend(["--", src_rel, dst_rel])
     p = _run_git(repo, args, check=False)
     if p.returncode == 0:
+        if not dry_run:
+            _prune_empty_parents(repo, src_path.parent)
         return True, p.stdout.decode("utf-8", "replace").strip()
     return False, p.stderr.decode("utf-8", "replace").strip()
+
+
+def _prune_empty_parents(repo: Path, path: Path) -> None:
+    """Remove empty directories left behind after file-level renames."""
+    repo = repo.resolve()
+    try:
+        current = path.resolve()
+    except FileNotFoundError:
+        return
+
+    while current != repo:
+        try:
+            current.rmdir()
+        except OSError:
+            break
+        current = current.parent

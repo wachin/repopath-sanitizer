@@ -685,14 +685,12 @@ class MainWindow(QMainWindow):
             if (it.rel_path, it.proposed_fix) in applied_set:
                 it.status = "Renamed"
         self._populate_table()
+        self._start_scan()
 
     def _run_apply(self, dry_run: bool):
         repo = Path(self.repo_path)
 
-        # Run in current thread for simplicity (fast enough for typical rename counts).
-        # If you expect many thousands of renames, this can be moved to QThread.
         from .engine import plan_renames
-        from .gitutils import git_mv
 
         planned_ops, warnings = plan_renames(
             self.items,
@@ -700,6 +698,13 @@ class MainWindow(QMainWindow):
             existing_paths=self.meta.get("all_paths", []),
             tracked_paths=self.meta.get("tracked_files", []),
         )
+        if dry_run:
+            return planned_ops, [], warnings
+
+        # Run in current thread for simplicity (fast enough for typical rename counts).
+        # If you expect many thousands of renames, this can be moved to QThread.
+        from .gitutils import git_mv
+
         applied_ops: List[Tuple[str,str]] = []
         for src,dst in planned_ops:
             ok, msg = git_mv(repo, src, dst, dry_run=dry_run)

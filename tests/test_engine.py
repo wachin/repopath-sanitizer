@@ -1,6 +1,7 @@
 import subprocess
 
 from repopath_sanitizer.engine import build_scan, plan_renames
+from repopath_sanitizer.gitutils import git_mv
 from repopath_sanitizer.models import FixOption, Issue, ItemType, ScanItem
 from repopath_sanitizer.pathrules import ScanConfig
 
@@ -108,3 +109,19 @@ def test_build_scan_marks_tracked_symlinks_without_statting_directories(tmp_path
 
     assert "link.txt" in meta["tracked_files"]
     assert any(item.rel_path == "link.txt" and item.item_type == ItemType.SYMLINK for item in items)
+
+
+def test_git_mv_creates_missing_target_dirs_and_prunes_empty_source_dirs(tmp_path):
+    subprocess.run(["git", "init"], cwd=tmp_path, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    source_dir = tmp_path / "Promts" / "Acerca de..."
+    source_dir.mkdir(parents=True)
+    source_file = source_dir / "About.txt"
+    source_file.write_text("content", encoding="utf-8")
+    subprocess.run(["git", "add", "Promts/Acerca de.../About.txt"], cwd=tmp_path, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+    ok, message = git_mv(tmp_path, "Promts/Acerca de.../About.txt", "Promts/Acerca de/About.txt", dry_run=False)
+
+    assert ok, message
+    assert not source_file.exists()
+    assert not source_dir.exists()
+    assert (tmp_path / "Promts" / "Acerca de" / "About.txt").exists()
