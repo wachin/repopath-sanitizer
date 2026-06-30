@@ -142,6 +142,7 @@ class MainWindow(QMainWindow):
         self._scan_worker: Optional[ScanWorker] = None
         self._apply_thread: Optional[QThread] = None
         self._apply_worker: Optional[ApplyWorker] = None
+        self._populating_table = False
 
         self._build_ui()
 
@@ -213,6 +214,7 @@ class MainWindow(QMainWindow):
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
         self.table.itemSelectionChanged.connect(self._on_selection_changed)
+        self.table.itemChanged.connect(self._on_table_item_changed)
         self.table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.table.customContextMenuRequested.connect(self._show_results_context_menu)
         self.table.horizontalHeader().setStretchLastSection(True)
@@ -232,6 +234,12 @@ class MainWindow(QMainWindow):
         self.details_title = QLabel("Details")
         self.details_title.setStyleSheet("font-weight: bold; font-size: 16px;")
         right_l.addWidget(self.details_title)
+
+        self.details_path = QLabel("Current path: —")
+        self.details_path.setWordWrap(True)
+        self.details_path.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self.details_path.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        right_l.addWidget(self.details_path)
 
         self.details_issues = QTextEdit()
         self.details_issues.setReadOnly(True)
@@ -291,7 +299,7 @@ class MainWindow(QMainWindow):
             self.settings.setValue("windows_checkout_root", self.config.windows_checkout_root)
 
     def _pick_repo(self):
-        d = QFileDialog.getExistingDirectory(self, "Select repository folder", str(Path.home()))
+        d = self._choose_directory("Select repository folder")
         if not d:
             return
         p = Path(d)
@@ -303,6 +311,28 @@ class MainWindow(QMainWindow):
         self.repo_edit.setText(self.repo_path)
         self.settings.setValue("last_repo", self.repo_path)
         self._update_buttons()
+
+    def _choose_directory(self, title: str, start_dir: Optional[Path] = None) -> str:
+        base_dir = start_dir or self._preferred_dialog_dir()
+        dlg = QFileDialog(self, title, str(base_dir))
+        dlg.setFileMode(QFileDialog.FileMode.Directory)
+        dlg.setOption(QFileDialog.Option.ShowDirsOnly, True)
+        dlg.setOption(QFileDialog.Option.DontResolveSymlinks, True)
+        dlg.setOption(QFileDialog.Option.DontUseNativeDialog, True)
+        if dlg.exec():
+            selected = dlg.selectedFiles()
+            if selected:
+                return selected[0]
+        return ""
+
+    def _preferred_dialog_dir(self) -> Path:
+        candidates = [self.repo_path, str(self.settings.value("last_repo", ""))]
+        for candidate in candidates:
+            if candidate:
+                p = Path(candidate)
+                if p.exists():
+                    return p if p.is_dir() else p.parent
+        return Path.home()
 
     def _cancel_scan(self):
         if self._scan_worker:
@@ -379,17 +409,19 @@ class MainWindow(QMainWindow):
         self._update_buttons()
 
     def _populate_table(self):
-        self.table.setRowCount(0)
-        for it in self.items:
-            row = self.table.rowCount()
-            self.table.insertRow(row)
-
-            # Checkbox in Type column
-            chk = QCheckBox(it.item_type.value)
-            chk.setChecked(it.selected)
-            chk.stateChanged.connect(lambda s, r=row: self._on_row_checked(r, s))
-            self.table.setCellWidget(row, COL_TYPE, chk)
-
+        self._populating_table = True
+        self.table.blockSignals(True)
+        self.table.setUpdatesEnabled(False)
+        self.table.clearContents()
+        self.table.setRowCount(len(self.items))
+        for row, it in enumerate(self.items):
+            type_item = QTableWidgetItem(it.item_type.value)
+            type_item.setFlags(
+                (type_item.flags() | Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled)
+                & ~Qt.ItemFlag.ItemIsEditable
+            )
+            type_item.setCheckState(Qt.CheckState.Checked if it.selected else Qt.CheckState.Unchecked)
+            self.table.setItem(row, COL_TYPE, type_item)
             self.table.setItem(row, COL_PATH, QTableWidgetItem(it.rel_path))
             issues_txt = "; ".join([self._format_issue_label(i.code) for i in it.issues])
             issue_item = QTableWidgetItem(issues_txt)
@@ -398,8 +430,14 @@ class MainWindow(QMainWindow):
             self.table.setItem(row, COL_FIX, QTableWidgetItem(it.proposed_fix or ""))
             self.table.setItem(row, COL_STATUS, QTableWidgetItem(it.status))
 
+        self.table.setUpdatesEnabled(True)
+        self.table.blockSignals(False)
+        self._populating_table = False
+        self._sync_master_checkbox()
         if self.items:
             self.table.selectRow(0)
+        else:
+            self._show_empty_details()
 
     def _item_for_row(self, row: int) -> Optional[ScanItem]:
         if 0 <= row < len(self.items):
@@ -469,21 +507,24 @@ class MainWindow(QMainWindow):
         QApplication.clipboard().setText(text)
         self.statusBar().showMessage("Path copied to clipboard.", 3000)
 
-    def _on_row_checked(self, row: int, state: int):
+    def _on_table_item_changed(self, item: QTableWidgetItem):
+        if self._populating_table or item.column() != COL_TYPE:
+            return
+        row = item.row()
         if 0 <= row < len(self.items):
-            self.items[row].selected = (state == Qt.CheckState.Checked.value)
+            self.items[row].selected = (item.checkState() == Qt.CheckState.Checked)
         self._sync_master_checkbox()
         self._update_buttons()
 
     def _toggle_all(self, state: int):
         checked = (state == Qt.CheckState.Checked.value)
+        self.table.blockSignals(True)
         for r, it in enumerate(self.items):
             it.selected = checked
-            w = self.table.cellWidget(r, COL_TYPE)
-            if isinstance(w, QCheckBox):
-                w.blockSignals(True)
-                w.setChecked(checked)
-                w.blockSignals(False)
+            type_item = self.table.item(r, COL_TYPE)
+            if type_item is not None:
+                type_item.setCheckState(Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked)
+        self.table.blockSignals(False)
         self._update_buttons()
 
     def _sync_master_checkbox(self):
@@ -505,16 +546,28 @@ class MainWindow(QMainWindow):
     def _on_selection_changed(self):
         row = self.table.currentRow()
         if row < 0 or row >= len(self.items):
+            self._show_empty_details()
             return
         it = self.items[row]
         self._show_details(it)
+
+    def _show_empty_details(self):
+        self.details_title.setText("Details")
+        self.details_path.setText("Current path: —")
+        self.details_issues.clear()
+        self.details_warn.clear()
+        self.fix_combo.blockSignals(True)
+        self.fix_combo.clear()
+        self.fix_combo.blockSignals(False)
+        self.preview_label.setText("Preview: —")
 
     @staticmethod
     def _format_issue_label(code: str) -> str:
         return ISSUE_LABELS.get(code, code.replace("_", " ").title())
 
     def _show_details(self, it: ScanItem):
-        self.details_title.setText(f"Details: {it.rel_path}")
+        self.details_title.setText("Details")
+        self.details_path.setText(f"Current path: {it.rel_path}")
         lines = []
         for iss in it.issues:
             label = self._format_issue_label(iss.code)
@@ -675,7 +728,7 @@ class MainWindow(QMainWindow):
         js = json_dumps(data)
         txt = to_text_summary(repo, planned_ops, warnings)
 
-        outdir = QFileDialog.getExistingDirectory(self, "Select export folder", str(Path.home()))
+        outdir = self._choose_directory("Select export folder")
         if not outdir:
             return
         outdir = str(outdir)

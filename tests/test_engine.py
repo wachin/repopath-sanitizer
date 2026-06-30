@@ -94,3 +94,17 @@ def test_build_scan_reports_long_folder_and_file_names(tmp_path):
     file_item = next(item for item in items if item.rel_path == f"{long_folder}/{long_file}")
     assert any(issue.code == "SEGMENT_TOO_LONG" for issue in file_item.issues)
     assert all(len(segment) <= 20 for segment in file_item.proposed_fix.split("/"))
+
+
+def test_build_scan_marks_tracked_symlinks_without_statting_directories(tmp_path):
+    subprocess.run(["git", "init"], cwd=tmp_path, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    target = tmp_path / "target.txt"
+    target.write_text("content", encoding="utf-8")
+    link = tmp_path / "link.txt"
+    link.symlink_to(target.name)
+    subprocess.run(["git", "add", "target.txt", "link.txt"], cwd=tmp_path, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+    items, meta = build_scan(tmp_path, config=ScanConfig())
+
+    assert "link.txt" in meta["tracked_files"]
+    assert any(item.rel_path == "link.txt" and item.item_type == ItemType.SYMLINK for item in items)

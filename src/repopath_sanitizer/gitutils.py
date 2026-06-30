@@ -65,6 +65,25 @@ def list_tracked_files(repo: Path) -> List[str]:
     return [s.decode("utf-8", "surrogateescape") for s in raw.split(b"\x00") if s]
 
 
+def list_tracked_index_entries(repo: Path) -> List[Tuple[str, str]]:
+    """Return ``(mode, path)`` pairs from the Git index."""
+    p = _run_git(repo, ["ls-files", "-z", "-s"], check=True)
+    raw = p.stdout
+    if not raw:
+        return []
+
+    entries: List[Tuple[str, str]] = []
+    for record in raw.split(b"\x00"):
+        if not record:
+            continue
+        meta, sep, path = record.partition(b"\t")
+        if not sep:
+            continue
+        mode = meta.split(maxsplit=1)[0].decode("ascii", "replace")
+        entries.append((mode, path.decode("utf-8", "surrogateescape")))
+    return entries
+
+
 def list_untracked_files(repo: Path) -> List[str]:
     # Non-ignored untracked files are useful during development before git add.
     p = _run_git(repo, ["ls-files", "-z", "--others", "--exclude-standard"], check=True)

@@ -7,7 +7,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Set, Tuple
 
-from .gitutils import list_tracked_files, list_untracked_files, list_ignored_files, list_submodules
+from .gitutils import list_tracked_index_entries, list_untracked_files, list_ignored_files, list_submodules
 from .models import ItemType, Issue, FixOption, ScanItem
 from .pathrules import (
     ScanConfig,
@@ -23,13 +23,15 @@ from .pathrules import (
 def _dedupe_paths(paths: Iterable[str]) -> List[str]:
     return list(dict.fromkeys(paths))
 
-def _iter_worktree_paths(repo: Path, *, include_ignored: bool) -> Tuple[List[str], List[str], List[str], List[str]]:
-    tracked = list_tracked_files(repo)
+def _iter_worktree_paths(repo: Path, *, include_ignored: bool) -> Tuple[List[str], List[str], List[str], List[str], Set[str]]:
+    tracked_entries = list_tracked_index_entries(repo)
+    tracked = [path for _mode, path in tracked_entries]
+    tracked_symlinks = {path for mode, path in tracked_entries if mode == "120000"}
     untracked = list_untracked_files(repo)
     ignored: List[str] = []
     if include_ignored:
         ignored = list_ignored_files(repo)
-    return tracked, untracked, ignored, _dedupe_paths([*tracked, *untracked, *ignored])
+    return tracked, untracked, ignored, _dedupe_paths([*tracked, *untracked, *ignored]), tracked_symlinks
 
 def _dirs_from_files(files: List[str]) -> Set[str]:
     dirs: Set[str] = set()
@@ -60,8 +62,12 @@ def detect_collisions_nfc(paths: List[str]) -> Dict[str, List[str]]:
     return out
 
 def build_scan(repo: Path, *, config: ScanConfig, include_ignored: bool = False, scan_submodules: bool = False) -> Tuple[List[ScanItem], Dict]:
-    tracked_files, untracked_files, ignored_files, files = _iter_worktree_paths(repo, include_ignored=include_ignored)
+    tracked_files, untracked_files, ignored_files, files, tracked_symlinks = _iter_worktree_paths(
+        repo,
+        include_ignored=include_ignored,
+    )
     dirs = sorted(_dirs_from_files(files))
+    dir_set = set(dirs)
     items: List[ScanItem] = []
 
     # Build candidate set for collision detection (include files + dirs)
@@ -78,8 +84,8 @@ def build_scan(repo: Path, *, config: ScanConfig, include_ignored: bool = False,
             continue
         abs_path = str(repo / rel)
         p = repo / rel
-        is_dir = p.is_dir()
-        is_link = p.is_symlink()
+        is_dir = rel in dir_set
+        is_link = False if is_dir else (rel in tracked_symlinks or p.is_symlink())
         item_type = ItemType.SYMLINK if is_link else (ItemType.FOLDER if is_dir else ItemType.FILE)
 
         issues_raw = validate_rel_path(rel, config=config)
