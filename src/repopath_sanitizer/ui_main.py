@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
+import time
 from dataclasses import asdict
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -323,14 +324,20 @@ class MainWindow(QMainWindow):
 
     def _choose_directory(self, title: str, start_dir: Optional[Path] = None) -> str:
         base_dir = start_dir or self._preferred_dialog_dir()
+        log_info("Opening directory picker title=%s start_dir=%s", title, base_dir)
+        started_at = time.perf_counter()
         dlg = QFileDialog(self, title, str(base_dir))
         dlg.setFileMode(QFileDialog.FileMode.Directory)
         dlg.setOption(QFileDialog.Option.ShowDirsOnly, True)
         dlg.setOption(QFileDialog.Option.DontResolveSymlinks, True)
-        dlg.setOption(QFileDialog.Option.DontUseNativeDialog, True)
-        if dlg.exec():
+        dlg.setOption(QFileDialog.Option.DontUseCustomDirectoryIcons, True)
+        accepted = dlg.exec()
+        elapsed = time.perf_counter() - started_at
+        log_info("Directory picker closed accepted=%s elapsed=%.3fs title=%s", bool(accepted), elapsed, title)
+        if accepted:
             selected = dlg.selectedFiles()
             if selected:
+                log_info("Directory picker selected path=%s", selected[0])
                 return selected[0]
         return ""
 
