@@ -131,6 +131,36 @@ pip list
 repopath-sanitizer --help
 ```
 
+### File Dialogs Are Slow on Linux
+
+If `Browse...`, `Save Log`, or export dialogs are very slow on Linux, the problem may come from the Qt platform theme backend.
+
+This project had that problem when Qt was started with:
+
+```bash
+QT_QPA_PLATFORMTHEME=qt5ct
+```
+
+RepoPath Sanitizer already applies the fix automatically in its own code before creating `QApplication`, so in this project you can still launch it normally with:
+
+```bash
+python3 -m repopath_sanitizer
+```
+
+The integrated logic sets `QT_QPA_PLATFORMTHEME=gtk3` on Linux when the current value is empty or `qt5ct`.
+
+This matters because in this environment the GTK3 file dialog worked better than the Qt-side dialog backend:
+
+- search worked correctly
+- bookmarks/places worked correctly
+- dialogs opened without the long delays seen before
+
+If you want to reuse the same workaround in another PyQt6 program that does not include the fix in its code, run it manually with:
+
+```bash
+QT_QPA_PLATFORMTHEME=gtk3 python3 -m your_program
+```
+
 ### Build Issues
 
 If you encounter build issues, ensure you have all the required dependencies:

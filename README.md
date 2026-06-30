@@ -78,6 +78,72 @@ This program was tested on **Debian 12 (Bookworm)**.
 
 ---
 
+## Linux File Dialog Fix
+
+If the `Browse...` or `Save Log` dialogs are extremely slow on Linux, the cause may be the Qt platform theme backend, not the repository scan itself.
+
+In this project, the problem appeared when the GUI was launched with:
+
+```bash
+QT_QPA_PLATFORMTHEME=qt5ct
+```
+
+Under that backend, opening or cancelling a Qt file dialog could take many seconds.
+
+In this project, the solution is already integrated in the code. RepoPath Sanitizer detects Linux GUI startup and, before creating `QApplication`, it checks `QT_QPA_PLATFORMTHEME`. If the value is empty or `qt5ct`, it changes it to `gtk3`.
+
+That means you can launch the program normally with:
+
+```bash
+python3 -m repopath_sanitizer
+```
+
+and the fix is applied automatically.
+
+### Why `gtk3` helped
+
+In this environment, the GTK3-backed dialog behaved better than the Qt dialog backend:
+
+- file dialogs opened immediately
+- the search box worked correctly
+- bookmarks/places worked correctly
+
+With the Qt-side dialog backend, those features were either slow or not working well.
+
+### How the integrated fix works
+
+The logic used by this project is simple and can be reused in other PyQt6 applications:
+
+```python
+import os
+import sys
+
+if sys.platform.startswith("linux"):
+    current = os.environ.get("QT_QPA_PLATFORMTHEME", "")
+    if current in {"", "qt5ct"}:
+        os.environ["QT_QPA_PLATFORMTHEME"] = "gtk3"
+```
+
+Important: this must run before creating `QApplication`.
+
+### Manual workaround for other programs
+
+If another PyQt6 program does not have this fix in its own code, you can launch it manually from its repository with a command such as:
+
+```bash
+QT_QPA_PLATFORMTHEME=gtk3 python3 -m your_program
+```
+
+For RepoPath Sanitizer specifically, this manual command is only a fallback or test command because the fix is already built in.
+
+This affects GUI dialogs such as:
+
+- `Browse...`
+- `Save Log`
+- report export dialogs
+
+---
+
 ## PyQt6 on Debian (VERY IMPORTANT)
 
 On Debian, installing **PyQt6 via pip** may fail because it tries to build from source and requires a full Qt development environment.

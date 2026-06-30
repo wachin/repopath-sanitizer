@@ -326,19 +326,17 @@ class MainWindow(QMainWindow):
         base_dir = start_dir or self._preferred_dialog_dir()
         log_info("Opening directory picker title=%s start_dir=%s", title, base_dir)
         started_at = time.perf_counter()
-        dlg = QFileDialog(self, title, str(base_dir))
-        dlg.setFileMode(QFileDialog.FileMode.Directory)
-        dlg.setOption(QFileDialog.Option.ShowDirsOnly, True)
-        dlg.setOption(QFileDialog.Option.DontResolveSymlinks, True)
-        dlg.setOption(QFileDialog.Option.DontUseCustomDirectoryIcons, True)
-        accepted = dlg.exec()
+        selected = QFileDialog.getExistingDirectory(
+            self,
+            title,
+            str(base_dir),
+            options=QFileDialog.Option.ShowDirsOnly,
+        )
         elapsed = time.perf_counter() - started_at
-        log_info("Directory picker closed accepted=%s elapsed=%.3fs title=%s", bool(accepted), elapsed, title)
-        if accepted:
-            selected = dlg.selectedFiles()
-            if selected:
-                log_info("Directory picker selected path=%s", selected[0])
-                return selected[0]
+        log_info("Directory picker closed accepted=%s elapsed=%.3fs title=%s", bool(selected), elapsed, title)
+        if selected:
+            log_info("Directory picker selected path=%s", selected)
+            return selected
         return ""
 
     def _preferred_dialog_dir(self) -> Path:
