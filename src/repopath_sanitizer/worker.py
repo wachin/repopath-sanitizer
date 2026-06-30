@@ -5,6 +5,7 @@ from typing import Iterable, List, Tuple
 
 from PyQt6.QtCore import QObject, pyqtSignal
 
+from .diagnostics import log_exception, log_info
 from .engine import build_scan, plan_renames
 from .models import ScanItem
 from .pathrules import ScanConfig
@@ -29,8 +30,10 @@ class ScanWorker(QObject):
 
     def run(self):
         try:
+            log_info("ScanWorker run start repo=%s", self.repo)
             self.progress.emit(0, "Listing repository files…")
             if self._cancel:
+                log_info("ScanWorker cancelled before build_scan repo=%s", self.repo)
                 self.cancelled.emit("Scan cancelled.")
                 return
             items, meta = build_scan(
@@ -40,11 +43,14 @@ class ScanWorker(QObject):
                 scan_submodules=self.scan_submodules,
             )
             if self._cancel:
+                log_info("ScanWorker cancelled after build_scan repo=%s", self.repo)
                 self.cancelled.emit("Scan cancelled.")
                 return
             self.progress.emit(100, f"Found {len(items)} problematic paths.")
+            log_info("ScanWorker run finished repo=%s items=%s", self.repo, len(items))
             self.finished.emit(items, meta)
         except Exception as e:
+            log_exception("ScanWorker failed for repo=%s", self.repo)
             self.failed.emit(str(e))
 
 
@@ -65,6 +71,7 @@ class ApplyWorker(QObject):
     def run(self):
         try:
             from .gitutils import git_mv
+            log_info("ApplyWorker run start repo=%s items=%s dry_run=%s", self.repo, len(self.items), self.dry_run)
             planned_ops, warnings = plan_renames(
                 self.items,
                 config=self.config,
@@ -85,6 +92,8 @@ class ApplyWorker(QObject):
                     if not self.dry_run:
                         applied.append((src,dst))
             self.progress.emit(100, "Done.")
+            log_info("ApplyWorker run finished repo=%s planned=%s applied=%s warnings=%s", self.repo, len(planned_ops), len(applied), len(warnings))
             self.finished.emit(planned_ops, applied, warnings)
         except Exception as e:
+            log_exception("ApplyWorker failed for repo=%s", self.repo)
             self.failed.emit(str(e))

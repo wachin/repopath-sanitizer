@@ -7,6 +7,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Set, Tuple
 
+from .diagnostics import log_info
 from .gitutils import list_tracked_index_entries, list_untracked_files, list_ignored_files, list_submodules
 from .models import ItemType, Issue, FixOption, ScanItem
 from .pathrules import (
@@ -62,6 +63,14 @@ def detect_collisions_nfc(paths: List[str]) -> Dict[str, List[str]]:
     return out
 
 def build_scan(repo: Path, *, config: ScanConfig, include_ignored: bool = False, scan_submodules: bool = False) -> Tuple[List[ScanItem], Dict]:
+    log_info(
+        "build_scan start repo=%s include_ignored=%s scan_submodules=%s max_path=%s max_segment=%s",
+        repo,
+        include_ignored,
+        scan_submodules,
+        config.max_path,
+        config.max_segment,
+    )
     tracked_files, untracked_files, ignored_files, files, tracked_symlinks = _iter_worktree_paths(
         repo,
         include_ignored=include_ignored,
@@ -173,6 +182,15 @@ def build_scan(repo: Path, *, config: ScanConfig, include_ignored: bool = False,
         subs = list_submodules(repo)
         meta["submodules"] = [str(p) for p in subs]
         # Caller may run build_scan on submodules separately if desired.
+    log_info(
+        "build_scan finished repo=%s tracked=%s untracked=%s ignored=%s derived_dirs=%s flagged_items=%s",
+        repo,
+        len(tracked_files),
+        len(untracked_files),
+        len(ignored_files),
+        len(dirs),
+        len(items),
+    )
     return items, meta
 
 def _is_git_tracked_item(item: ScanItem) -> bool:
@@ -189,6 +207,7 @@ def _add_numeric_suffix(rel_path: str, n: int) -> str:
 
 def plan_renames(items: List[ScanItem], *, config: ScanConfig, existing_paths: Optional[Iterable[str]] = None, tracked_paths: Optional[Iterable[str]] = None) -> Tuple[List[Tuple[str,str]], List[str]]:
     """Return (rename_ops, warnings). rename_ops is list of (src_rel, dst_rel)."""
+    log_info("plan_renames start items=%s", len(items))
     selected = [it for it in items if it.selected and it.proposed_fix and it.proposed_fix != it.rel_path]
     warnings: List[str] = []
 
@@ -236,4 +255,5 @@ def plan_renames(items: List[ScanItem], *, config: ScanConfig, existing_paths: O
             continue
         used_ci.add(k)
         ops.append((it.rel_path, dst))
+    log_info("plan_renames finished ops=%s warnings=%s", len(ops), len(warnings))
     return ops, warnings

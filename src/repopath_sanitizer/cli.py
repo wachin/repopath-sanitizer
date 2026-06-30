@@ -4,6 +4,7 @@ import argparse
 from pathlib import Path
 
 from .engine import build_scan, plan_renames
+from .diagnostics import log_info
 from .gitutils import is_git_repo, repo_root
 from .pathrules import ScanConfig
 from .report import to_json, json_dumps, to_text_summary
@@ -29,8 +30,10 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 def run_cli(args: argparse.Namespace) -> int:
+    log_info("CLI run started for repo=%s", args.repo)
     repo = Path(args.repo)
     if not is_git_repo(repo):
+        log_info("CLI rejected non-git path: %s", repo)
         print("Not a Git working tree:", repo)
         return 2
     repo = repo_root(repo)
@@ -49,6 +52,7 @@ def run_cli(args: argparse.Namespace) -> int:
         existing_paths=meta.get("all_paths", []),
         tracked_paths=meta.get("tracked_files", []),
     )
+    log_info("CLI scan finished items=%s planned_ops=%s warnings=%s", len(items), len(planned_ops), len(warnings))
     data = to_json(str(repo), meta, items, planned_ops=planned_ops, applied_ops=[], extra_warnings=warnings)
     js = json_dumps(data)
     txt = to_text_summary(str(repo), planned_ops, warnings)

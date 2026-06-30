@@ -39,6 +39,7 @@ from PyQt6.QtWidgets import (
 )
 
 from .constants import APP_NAME, ORG_NAME, DEFAULT_WIN_MAX_PATH, DEFAULT_WIN_MAX_SEGMENT
+from .diagnostics import log_exception, log_info, log_warning, save_log_copy, session_log_path
 from .gitutils import is_git_repo, repo_root, has_uncommitted_changes, stash_push, stash_pop
 from .models import ScanItem
 from .pathrules import ScanConfig
@@ -272,10 +273,13 @@ class MainWindow(QMainWindow):
         self.btn_apply.clicked.connect(self._apply_fixes)
         self.btn_export = QPushButton("Export Report")
         self.btn_export.clicked.connect(self._export_report)
+        self.btn_save_log = QPushButton("Save Log")
+        self.btn_save_log.clicked.connect(self._save_log)
         self.btn_rescan = QPushButton("Rescan")
         self.btn_rescan.clicked.connect(self._start_scan)
         bottom_l.addWidget(self.btn_apply)
         bottom_l.addWidget(self.btn_export)
+        bottom_l.addWidget(self.btn_save_log)
         bottom_l.addWidget(self.btn_rescan)
         bottom_l.addStretch(1)
 
@@ -289,6 +293,7 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(central)
 
         self._update_buttons()
+        log_info("MainWindow initialized session_log=%s", session_log_path())
 
     def _open_settings(self):
         dlg = SettingsDialog(self, self.config)
@@ -299,17 +304,21 @@ class MainWindow(QMainWindow):
             self.settings.setValue("windows_checkout_root", self.config.windows_checkout_root)
 
     def _pick_repo(self):
+        log_info("User action: open repository picker")
         d = self._choose_directory("Select repository folder")
         if not d:
+            log_info("User action: repository picker cancelled")
             return
         p = Path(d)
         if not is_git_repo(p):
+            log_warning("Selected non-git path: %s", p)
             QMessageBox.warning(self, "Not a Git repository", "The selected folder is not inside a Git working tree.")
             return
         root = repo_root(p)
         self.repo_path = str(root)
         self.repo_edit.setText(self.repo_path)
         self.settings.setValue("last_repo", self.repo_path)
+        log_info("Repository selected: %s", self.repo_path)
         self._update_buttons()
 
     def _choose_directory(self, title: str, start_dir: Optional[Path] = None) -> str:
@@ -335,6 +344,7 @@ class MainWindow(QMainWindow):
         return Path.home()
 
     def _cancel_scan(self):
+        log_info("User action: cancel scan")
         if self._scan_worker:
             self._scan_worker.cancel()
         self.btn_cancel.setEnabled(False)
@@ -346,14 +356,22 @@ class MainWindow(QMainWindow):
                 self.repo_path = str(last)
                 self.repo_edit.setText(self.repo_path)
         if not self.repo_path:
+            log_warning("Scan requested without repository")
             QMessageBox.information(self, "Select repository", "Please select a repository first.")
             return
 
         repo = Path(self.repo_path)
         if not is_git_repo(repo):
+            log_warning("Scan rejected for invalid repository: %s", repo)
             QMessageBox.warning(self, "Invalid repository", "Repository is not a valid Git working tree.")
             return
 
+        log_info(
+            "User action: start scan repo=%s include_ignored=%s scan_submodules=%s",
+            repo,
+            self.chk_include_ignored.isChecked(),
+            self.chk_scan_submodules.isChecked(),
+        )
         self.progress.setValue(0)
         self.progress_label.setText("Starting scan…")
         self.btn_cancel.setEnabled(True)
@@ -375,10 +393,12 @@ class MainWindow(QMainWindow):
         self._scan_thread.start()
 
     def _on_progress(self, pct: int, msg: str):
+        log_info("Scan progress pct=%s msg=%s", pct, msg)
         self.progress.setValue(pct)
         self.progress_label.setText(msg)
 
     def _on_scan_finished(self, items: list, meta: dict):
+        log_info("Scan finished items=%s repo=%s", len(items), self.repo_path)
         self.items = items
         self.meta = meta
         self.progress_label.setText(f"Scan complete. {len(items)} item(s) need attention.")
@@ -391,6 +411,7 @@ class MainWindow(QMainWindow):
         self._update_buttons()
 
     def _on_scan_cancelled(self, msg: str):
+        log_warning("Scan cancelled repo=%s msg=%s", self.repo_path, msg)
         self.progress_label.setText(msg)
         self.btn_cancel.setEnabled(False)
         self.btn_scan.setEnabled(True)
@@ -400,6 +421,7 @@ class MainWindow(QMainWindow):
         self._update_buttons()
 
     def _on_scan_failed(self, err: str):
+        log_exception("Scan failed repo=%s err=%s", self.repo_path, err)
         QMessageBox.critical(self, "Scan failed", err)
         self.btn_cancel.setEnabled(False)
         self.btn_scan.setEnabled(True)
@@ -451,6 +473,7 @@ class MainWindow(QMainWindow):
             return
 
         self.table.selectRow(row)
+        log_info("User action: open context menu row=%s path=%s", row, item.rel_path)
         menu = QMenu(self)
         act_open = menu.addAction("Open in File Manager")
         act_copy = menu.addAction("Copy Path")
@@ -504,6 +527,7 @@ class MainWindow(QMainWindow):
 
     def _copy_item_path(self, item: ScanItem, *, absolute: bool):
         text = item.abs_path if absolute else item.rel_path
+        log_info("User action: copy path absolute=%s path=%s", absolute, text)
         QApplication.clipboard().setText(text)
         self.statusBar().showMessage("Path copied to clipboard.", 3000)
 
@@ -513,11 +537,13 @@ class MainWindow(QMainWindow):
         row = item.row()
         if 0 <= row < len(self.items):
             self.items[row].selected = (item.checkState() == Qt.CheckState.Checked)
+            log_info("User action: toggle row selected row=%s path=%s selected=%s", row, self.items[row].rel_path, self.items[row].selected)
         self._sync_master_checkbox()
         self._update_buttons()
 
     def _toggle_all(self, state: int):
         checked = (state == Qt.CheckState.Checked.value)
+        log_info("User action: toggle all selected=%s", checked)
         self.table.blockSignals(True)
         for r, it in enumerate(self.items):
             it.selected = checked
@@ -549,6 +575,7 @@ class MainWindow(QMainWindow):
             self._show_empty_details()
             return
         it = self.items[row]
+        log_info("User action: select row=%s path=%s", row, it.rel_path)
         self._show_details(it)
 
     def _show_empty_details(self):
@@ -605,6 +632,7 @@ class MainWindow(QMainWindow):
         it = self.items[row]
         key = self.fix_combo.itemData(idx)
         it.chosen_fix_key = key
+        log_info("User action: change fix row=%s path=%s key=%s", row, it.rel_path, key)
         # Update proposed fix to match chosen option
         for opt in it.fix_options:
             if opt.key == key:
@@ -615,12 +643,15 @@ class MainWindow(QMainWindow):
 
     def _apply_fixes(self):
         if not self.items:
+            log_warning("Apply fixes requested without scan results")
             QMessageBox.information(self, "Nothing to apply", "No scan results available.")
             return
         repo = Path(self.repo_path)
+        log_info("User action: apply fixes repo=%s selected_items=%s", repo, sum(1 for it in self.items if it.selected))
 
         # Safety: uncommitted changes
         if has_uncommitted_changes(repo):
+            log_warning("Repository has uncommitted changes before apply: %s", repo)
             msg = QMessageBox(self)
             msg.setWindowTitle("Uncommitted changes detected")
             msg.setText("This repository has uncommitted changes. Applying renames may complicate your working tree.")
@@ -632,6 +663,7 @@ class MainWindow(QMainWindow):
             msg.exec()
             clicked = msg.clickedButton()
             if clicked == btn_abort:
+                log_info("Apply fixes aborted by user due to uncommitted changes")
                 return
             do_stash = (clicked == btn_stash)
         else:
@@ -640,6 +672,7 @@ class MainWindow(QMainWindow):
         # Preview plan (dry run) and confirm
         planned_ops, applied_ops, warnings = self._run_apply(dry_run=True)
         if not planned_ops:
+            log_info("Apply fixes preview found no planned renames")
             QMessageBox.information(self, "No changes", "No renames are planned for the selected items.")
             return
 
@@ -654,24 +687,30 @@ class MainWindow(QMainWindow):
             QMessageBox.StandardButton.No,
         )
         if confirm != QMessageBox.StandardButton.Yes:
+            log_info("Apply fixes cancelled at confirmation")
             return
 
         stashed = False
         if do_stash:
             stashed = stash_push(repo)
             if not stashed:
+                log_warning("Auto-stash failed for repo=%s", repo)
                 QMessageBox.warning(self, "Stash failed", "Could not stash changes. Aborting for safety.")
                 return
+            log_info("Auto-stash created for repo=%s", repo)
 
         planned_ops, applied_ops, warnings = self._run_apply(dry_run=False)
+        log_info("Apply fixes finished planned=%s applied=%s warnings=%s", len(planned_ops), len(applied_ops), len(warnings))
 
         # Save rollback plan (reverse mapping)
         if applied_ops:
             save_last_run(self.repo_path, applied_ops, {"timestamp": self.meta.get("timestamp"), "planned": planned_ops, "warnings": warnings})
+            log_info("Saved rollback plan repo=%s applied=%s", self.repo_path, len(applied_ops))
 
         if stashed:
             # Try to restore stash
-            stash_pop(repo)
+            restored = stash_pop(repo)
+            log_info("Auto-stash restore repo=%s restored=%s", repo, restored)
 
         # Show result and next steps
         QMessageBox.information(
@@ -698,6 +737,7 @@ class MainWindow(QMainWindow):
             existing_paths=self.meta.get("all_paths", []),
             tracked_paths=self.meta.get("tracked_files", []),
         )
+        log_info("Apply phase dry_run=%s planned_ops=%s warnings=%s", dry_run, len(planned_ops), len(warnings))
         if dry_run:
             return planned_ops, [], warnings
 
@@ -710,18 +750,22 @@ class MainWindow(QMainWindow):
             ok, msg = git_mv(repo, src, dst, dry_run=dry_run)
             if not ok:
                 warnings.append(f"git mv failed for {src} -> {dst}: {msg}")
+                log_warning("git mv failed src=%s dst=%s msg=%s", src, dst, msg)
                 if not dry_run:
                     break
             else:
                 if not dry_run:
                     applied_ops.append((src,dst))
+                    log_info("git mv applied src=%s dst=%s", src, dst)
         return planned_ops, applied_ops, warnings
 
     def _export_report(self):
         if not self.items:
+            log_warning("Export report requested without scan results")
             QMessageBox.information(self, "Nothing to export", "Run a scan first.")
             return
         repo = self.repo_path
+        log_info("User action: export report repo=%s", repo)
         from .engine import plan_renames
         planned_ops, warnings = plan_renames(
             self.items,
@@ -735,6 +779,7 @@ class MainWindow(QMainWindow):
 
         outdir = self._choose_directory("Select export folder")
         if not outdir:
+            log_info("Export report cancelled by user")
             return
         outdir = str(outdir)
         json_path = Path(outdir) / "repopath_sanitizer_report.json"
@@ -743,19 +788,48 @@ class MainWindow(QMainWindow):
         txt_path.write_text(txt, encoding="utf-8")
 
         QMessageBox.information(self, "Export complete", f"Saved:\n- {json_path}\n- {txt_path}")
+        log_info("Exported report json=%s txt=%s", json_path, txt_path)
+
+    def _save_log(self):
+        log_info("User action: save log requested")
+        default_name = f"repopath_sanitizer_{Path(self.repo_path).name or 'session'}.log"
+        start_dir = self._preferred_dialog_dir()
+        file_path, _selected_filter = QFileDialog.getSaveFileName(
+            self,
+            "Save log",
+            str(start_dir / default_name),
+            "Log files (*.log);;All files (*)",
+        )
+        if not file_path:
+            log_info("Save log cancelled by user")
+            return
+        target = Path(file_path)
+        if target.suffix.lower() != ".log":
+            target = target.with_suffix(".log")
+        try:
+            saved = save_log_copy(target)
+        except Exception:
+            log_exception("Failed to save log to %s", target)
+            QMessageBox.critical(self, "Save log failed", f"Could not save log to:\n{target}")
+            return
+        QMessageBox.information(self, "Log saved", f"Saved log to:\n{saved}")
 
     def _undo_last_run(self):
         if not self.repo_path:
+            log_warning("Undo requested without repository")
             QMessageBox.information(self, "Select repository", "Select a repository first.")
             return
         last = load_last_run(self.repo_path)
         if not last:
+            log_info("Undo requested but no previous run exists repo=%s", self.repo_path)
             QMessageBox.information(self, "Nothing to undo", "No previous run found for this repository.")
             return
         mapping = last.get("mapping", [])
         if not mapping:
+            log_info("Undo requested but stored mapping is empty repo=%s", self.repo_path)
             QMessageBox.information(self, "Nothing to undo", "Stored mapping is empty.")
             return
+        log_info("User action: undo last run repo=%s mapping=%s", self.repo_path, len(mapping))
 
         preview = "\n".join([f"{s} <- {d}" for s,d in mapping[:200]])
         if len(mapping) > 200:
@@ -768,6 +842,7 @@ class MainWindow(QMainWindow):
             QMessageBox.StandardButton.No,
         )
         if confirm != QMessageBox.StandardButton.Yes:
+            log_info("Undo cancelled at confirmation repo=%s", self.repo_path)
             return
 
         repo = Path(self.repo_path)
@@ -779,10 +854,13 @@ class MainWindow(QMainWindow):
             ok, msg = git_mv(repo, dst, src, dry_run=False)
             if not ok:
                 failures.append(f"{dst} -> {src}: {msg}")
+                log_warning("Undo git mv failed src=%s dst=%s msg=%s", dst, src, msg)
         if failures:
             QMessageBox.warning(self, "Undo completed with errors", "Some operations failed:\n" + "\n".join(failures[:20]))
+            log_warning("Undo completed with failures count=%s repo=%s", len(failures), self.repo_path)
         else:
             QMessageBox.information(self, "Undo completed", "Successfully reverted the last run's renames.")
+            log_info("Undo completed successfully repo=%s", self.repo_path)
 
     def _update_buttons(self):
         has_repo = bool(self.repo_path)
@@ -790,4 +868,5 @@ class MainWindow(QMainWindow):
         self.btn_scan.setEnabled(has_repo)
         self.btn_apply.setEnabled(has_items and any(it.selected for it in self.items))
         self.btn_export.setEnabled(has_items)
+        self.btn_save_log.setEnabled(True)
         self.btn_rescan.setEnabled(has_repo)

@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, List, Optional, Tuple
 
+from .diagnostics import log_error, log_info
+
 
 class GitError(RuntimeError):
     pass
@@ -16,15 +18,23 @@ def _run_git(repo: Path, args: List[str], *, check: bool = True) -> subprocess.C
     # Make output stable and avoid paging
     env["GIT_PAGER"] = "cat"
     env["LC_ALL"] = "C"
+    cmd = ["git", "-C", str(repo), *args]
+    log_info("Running git command: %r", cmd)
     p = subprocess.run(
-        ["git", "-C", str(repo), *args],
+        cmd,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         env=env,
         check=False,
     )
+    stdout = p.stdout.decode("utf-8", "replace").strip()
+    stderr = p.stderr.decode("utf-8", "replace").strip()
+    if p.returncode == 0:
+        log_info("Git command ok rc=%s stdout=%r stderr=%r", p.returncode, stdout, stderr)
+    else:
+        log_error("Git command failed rc=%s stdout=%r stderr=%r", p.returncode, stdout, stderr)
     if check and p.returncode != 0:
-        raise GitError(p.stderr.decode("utf-8", "replace").strip() or "git command failed")
+        raise GitError(stderr or "git command failed")
     return p
 
 
@@ -122,6 +132,7 @@ def git_mv(repo: Path, src_rel: str, dst_rel: str, *, dry_run: bool = False) -> 
 
     if not dry_run:
         dst_path.parent.mkdir(parents=True, exist_ok=True)
+        log_info("Ensured destination parent exists for git mv: %s", dst_path.parent)
 
     args = ["mv"]
     if dry_run:
@@ -146,6 +157,7 @@ def _prune_empty_parents(repo: Path, path: Path) -> None:
     while current != repo:
         try:
             current.rmdir()
+            log_info("Removed empty directory after rename: %s", current)
         except OSError:
             break
         current = current.parent
