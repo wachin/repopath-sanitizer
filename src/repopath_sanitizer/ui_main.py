@@ -423,17 +423,42 @@ class MainWindow(QMainWindow):
             log_info("User action: directory picker cancelled")
             return
         p = Path(d)
+        is_git = is_git_repo(p)
+
         if self.mode == "filesystem":
             # Filesystem mode: accept any directory
             if not p.is_dir():
                 QMessageBox.warning(self, "Invalid folder", "The selected path is not a directory.")
                 return
+            # Auto-switch to Git mode when the selected folder IS the repo root
+            if is_git:
+                root = repo_root(p)
+                if root.resolve() == p.resolve():
+                    log_info(
+                        "Selected git repo root while in filesystem mode; switching to Git mode: %s",
+                        root,
+                    )
+                    self.radio_git.setChecked(True)
+                    self.repo_path = str(root)
+                    self.repo_edit.setText(self.repo_path)
+                    self.settings.setValue("last_repo", self.repo_path)
+                    self._update_buttons()
+                    return
+            # Not a repo root (or subfolder of one) -> plain filesystem folder
             self.repo_path = str(p)
         else:
             # Git mode: require a valid git repo
-            if not is_git_repo(p):
-                log_warning("Selected non-git path: %s", p)
-                QMessageBox.warning(self, "Not a Git repository", "The selected folder is not inside a Git working tree.")
+            if not is_git:
+                # Not a repository at all -> auto-switch to filesystem mode
+                log_warning(
+                    "Selected non-git path while in Git mode: %s; switching to filesystem mode",
+                    p,
+                )
+                self.radio_filesystem.setChecked(True)
+                self.repo_path = str(p)
+                self.repo_edit.setText(self.repo_path)
+                self.settings.setValue("last_repo", self.repo_path)
+                self._update_buttons()
                 return
             root = repo_root(p)
             self.repo_path = str(root)
