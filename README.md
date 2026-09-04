@@ -17,12 +17,18 @@ that would fail to check out on Windows. It proposes safe fixes and can apply th
 - Detects Windows-incompatible paths in Git repositories
 - Reports tracked files and normal untracked files; ignored files are optional
 - Git-aware renames (`git mv`) to preserve history
+- **Filesystem renames (`os.rename`) for untracked files** — no git needed
+- **Auto-switches** between `os.rename` (untracked) and `git mv` (tracked) automatically
 - Collision detection (case-insensitive + Unicode NFC)
 - Long path and long file/folder name detection with shortening strategies
 - Estimated Windows checkout path detection using a configurable base folder
 - GUI + CLI modes
 - Safe undo system
 - Results context menu for opening paths in the file manager or copying paths
+- **Reusable `windows_rules.py` module** with all Windows path restrictions
+- **Opens maximized by default** with minimum size protection (960×540)
+- **Window geometry persistence** — remembers size/position between sessions
+- **Thread-safe scanning** — prevents crashes on double-click or window close
 
 ## Fixed Case: Windows Clone Failure Caused by Trailing Periods
 
@@ -260,7 +266,19 @@ The scanner:
    - case-insensitive collisions
    - Unicode normalization conflicts
 4. Proposes safe sanitized paths
-5. Applies fixes using `git mv` to preserve history
+5. Applies fixes using the appropriate strategy:
+   - **`git mv`** for tracked files (preserves git history)
+   - **`os.rename`** for untracked files (no git dependency)
+
+The program **auto-switches** between these two strategies. When you click *Apply Fixes*, it shows a single combined preview with each file labeled `[untracked]` or `[git mv]`, then applies them all in one operation.
+
+### Why two strategies?
+
+If you accidentally type a Windows-forbidden character (like `:` or `|`) in a filename on Linux and haven't done `git add` yet, the file is untracked. Using `git mv` on an untracked file would fail. Instead, the program uses `os.rename()` directly — no stash, no git dependency. After renaming, you can `git add` the corrected names.
+
+### When does the stash warning appear?
+
+The "uncommitted changes" warning only appears when there are **tracked** files that need renaming. If the only issues are with untracked files, the program renames them directly without asking about stash.
 
 For the Windows checkout failure described above, the relevant rule is `trailing spaces/periods`. If a path segment ends in `.` or space, the sanitizer flags it and proposes a trimmed replacement that Windows can store safely.
 
@@ -281,6 +299,63 @@ In the GUI, these length-related issues are shown separately so they are easier 
 
 ---
 
+## Reusable `windows_rules.py` Module
+
+The file `src/repopath_sanitizer/windows_rules.py` is a **standalone, importable module** that contains all Windows filesystem path restrictions. Any developer can use it in their own project without depending on the rest of RepoPath Sanitizer.
+
+### What it contains
+
+| Symbol | Description |
+|--------|-------------|
+| `FORBIDDEN_CHARS` | Characters banned in Windows filenames: `< > : " / \ | ? *` |
+| `RESERVED_DEVICE_NAMES` | Device names Windows treats as special: `CON`, `PRN`, `AUX`, `NUL`, `COM1`–`COM9`, `LPT1`–`LPT9` |
+| `MAX_PATH_LENGTH` | Maximum total path length: `260` |
+| `MAX_SEGMENT_LENGTH` | Maximum single segment length: `255` |
+| `is_valid_filename(seg)` | Returns `True` if the segment is valid on Windows |
+| `sanitize_segment(seg)` | Returns a Windows-safe version of the segment |
+| `sanitize_relative_path(path)` | Sanitizes every segment in a path |
+| `validate_relative_path(path)` | Returns a list of `(code, message)` issues |
+| `contains_forbidden(seg)` | Checks for forbidden characters |
+| `has_trailing_space_or_period(seg)` | Checks for trailing `.` or ` ` |
+| `is_reserved_device_name(seg)` | Checks for reserved device names |
+
+### Usage in other projects
+
+```python
+from repopath_sanitizer.windows_rules import (
+    is_valid_filename,
+    sanitize_segment,
+    validate_relative_path,
+    FORBIDDEN_CHARS,
+)
+
+if not is_valid_filename("my:file.txt"):
+    safe = sanitize_segment("my:file.txt")
+    print(f"Renamed to: {safe}")  # → my -file.txt
+
+issues = validate_relative_path("src/my:file.txt")
+for code, msg in issues:
+    print(f"{code}: {msg}")
+```
+
+---
+
+## GUI Improvements
+
+### Maximized by default
+
+The application opens maximized on all screen sizes. A minimum size of 960×540 is enforced to prevent the UI from becoming unusable on small displays.
+
+### Window geometry persistence
+
+The window's size, position, and maximized state are saved between sessions. When you reopen the app, it restores the exact same layout.
+
+### Thread safety
+
+Scanning runs in a background thread. If you click *Scan* twice quickly, the previous scan is cancelled cleanly before the new one starts. Closing the window while a scan is running is also safe — threads are terminated before the application exits.
+
+---
+
 ## Developer Requirements
 
 For development and testing:
@@ -298,6 +373,7 @@ src/repopath_sanitizer/
     ui_main.py        # GUI
     engine.py         # Scan logic
     pathrules.py      # Windows compatibility rules
+    windows_rules.py  # Reusable Windows path restrictions (importable standalone)
     gitutils.py       # Git operations
     worker.py         # Background tasks
     report.py         # JSON/Text reports
