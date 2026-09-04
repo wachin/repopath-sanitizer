@@ -130,6 +130,7 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(APP_NAME)
         self.settings = QSettings(ORG_NAME, "RepoPathSanitizer")
         self.resize(1200, 720)
+        self.showMaximized()
 
         self.repo_path = ""
         self.items: List[ScanItem] = []
