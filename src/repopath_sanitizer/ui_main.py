@@ -129,7 +129,8 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle(APP_NAME)
         self.settings = QSettings(ORG_NAME, "RepoPathSanitizer")
-        self.resize(1200, 720)
+        self.setMinimumSize(960, 540)
+        self._restore_geometry()
         self.showMaximized()
 
         self.repo_path = ""
@@ -378,6 +379,8 @@ class MainWindow(QMainWindow):
             self.chk_include_ignored.isChecked(),
             self.chk_scan_submodules.isChecked(),
         )
+        self._cleanup_threads()
+
         self.progress.setValue(0)
         self.progress_label.setText("Starting scan…")
         self.btn_cancel.setEnabled(True)
@@ -644,7 +647,9 @@ class MainWindow(QMainWindow):
             if opt.key == key:
                 it.proposed_fix = opt.preview_path
                 break
-        self.table.item(row, COL_FIX).setText(it.proposed_fix or "")
+        fix_item = self.table.item(row, COL_FIX)
+        if fix_item is not None:
+            fix_item.setText(it.proposed_fix or "")
         self._show_details(it)
 
     def _apply_fixes(self):
@@ -717,6 +722,9 @@ class MainWindow(QMainWindow):
             # Try to restore stash
             restored = stash_pop(repo)
             log_info("Auto-stash restore repo=%s restored=%s", repo, restored)
+            if not restored:
+                log_warning("Auto-stash restore FAILED repo=%s", repo)
+                QMessageBox.warning(self, "Stash restore failed", "Your stashed changes could not be restored automatically.\n\nRun 'git stash pop' manually when you are ready.")
 
         # Show result and next steps
         QMessageBox.information(
@@ -790,8 +798,13 @@ class MainWindow(QMainWindow):
         outdir = str(outdir)
         json_path = Path(outdir) / "repopath_sanitizer_report.json"
         txt_path = Path(outdir) / "repopath_sanitizer_report.txt"
-        json_path.write_text(js, encoding="utf-8")
-        txt_path.write_text(txt, encoding="utf-8")
+        try:
+            json_path.write_text(js, encoding="utf-8")
+            txt_path.write_text(txt, encoding="utf-8")
+        except OSError as e:
+            log_exception("Failed to export report to %s", outdir)
+            QMessageBox.critical(self, "Export failed", f"Could not write report files:\n{e}")
+            return
 
         QMessageBox.information(self, "Export complete", f"Saved:\n- {json_path}\n- {txt_path}")
         log_info("Exported report json=%s txt=%s", json_path, txt_path)
@@ -867,6 +880,38 @@ class MainWindow(QMainWindow):
         else:
             QMessageBox.information(self, "Undo completed", "Successfully reverted the last run's renames.")
             log_info("Undo completed successfully repo=%s", self.repo_path)
+
+    def closeEvent(self, event):
+        """Clean up threads before closing to prevent crashes."""
+        self._save_geometry()
+        for thread in (self._scan_thread, self._apply_thread):
+            if thread is not None and thread.isRunning():
+                if self._scan_worker:
+                    self._scan_worker.cancel()
+                thread.quit()
+                thread.wait(3000)
+        event.accept()
+
+    def _restore_geometry(self):
+        """Restore saved window geometry (size, position, maximized state)."""
+        geo = self.settings.value("window_geometry")
+        if geo is not None:
+            self.restoreGeometry(geo)
+
+    def _save_geometry(self):
+        """Persist current window geometry across sessions."""
+        self.settings.setValue("window_geometry", self.saveGeometry())
+
+    def _cleanup_threads(self):
+        """Ensure old scan thread is fully stopped before starting a new one."""
+        if self._scan_thread is not None:
+            if self._scan_thread.isRunning():
+                if self._scan_worker:
+                    self._scan_worker.cancel()
+                self._scan_thread.quit()
+                self._scan_thread.wait(3000)
+            self._scan_thread = None
+            self._scan_worker = None
 
     def _update_buttons(self):
         has_repo = bool(self.repo_path)
