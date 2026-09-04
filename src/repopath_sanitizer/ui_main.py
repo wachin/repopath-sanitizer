@@ -39,11 +39,13 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+import os as _os
 from .constants import APP_NAME, ORG_NAME, DEFAULT_WIN_MAX_PATH, DEFAULT_WIN_MAX_SEGMENT
 from .diagnostics import log_exception, log_info, log_warning, save_log_copy, session_log_path
 from .gitutils import is_git_repo, repo_root, has_uncommitted_changes, stash_push, stash_pop
 from .models import ScanItem
 from .pathrules import ScanConfig
+from .engine import plan_renames_filesystem
 from .report import to_json, json_dumps, to_text_summary
 from .state import save_last_run, load_last_run
 from .worker import ScanWorker, ApplyWorker
@@ -134,6 +136,7 @@ class MainWindow(QMainWindow):
         self.showMaximized()
 
         self.repo_path = ""
+        self.mode = "git"  # "git" or "filesystem"
         self.items: List[ScanItem] = []
         self.meta: Dict = {}
         self.config = ScanConfig(
@@ -149,6 +152,7 @@ class MainWindow(QMainWindow):
         self._populating_table = False
 
         self._build_ui()
+        self._update_title()
 
     def _build_ui(self):
         # Toolbar
@@ -179,6 +183,15 @@ class MainWindow(QMainWindow):
         self.chk_include_ignored.setChecked(False)
         self.chk_scan_submodules = QCheckBox("Scan submodules (list only)")
         self.chk_scan_submodules.setChecked(False)
+
+        # Mode selector
+        top_l.addWidget(QLabel("Mode:"))
+        self.mode_combo = QComboBox()
+        self.mode_combo.addItem("Git Repository", "git")
+        self.mode_combo.addItem("Any Folder (no Git)", "filesystem")
+        self.mode_combo.currentIndexChanged.connect(self._on_mode_changed)
+        top_l.addWidget(self.mode_combo)
+        top_l.addSpacing(12)
 
         top_l.addWidget(QLabel("Repository:"))
         top_l.addWidget(self.repo_edit, 1)
@@ -298,6 +311,27 @@ class MainWindow(QMainWindow):
         self._update_buttons()
         log_info("MainWindow initialized session_log=%s", session_log_path())
 
+    def _on_mode_changed(self, idx: int):
+        self.mode = self.mode_combo.currentData()
+        log_info("Mode changed to: %s", self.mode)
+        self._update_title()
+        # Clear current scan results when switching mode
+        self.items = []
+        self.meta = {}
+        self.repo_path = ""
+        self.repo_edit.setText("")
+        self.repo_edit.setPlaceholderText(
+            "Select a folder…" if self.mode == "filesystem" else "Select a Git repository…"
+        )
+        self.table.setRowCount(0)
+        self._update_buttons()
+
+    def _update_title(self):
+        if self.mode == "filesystem":
+            self.setWindowTitle(f"{APP_NAME} — Filesystem Mode")
+        else:
+            self.setWindowTitle(APP_NAME)
+
     def _open_settings(self):
         dlg = SettingsDialog(self, self.config)
         if dlg.exec():
@@ -307,21 +341,31 @@ class MainWindow(QMainWindow):
             self.settings.setValue("windows_checkout_root", self.config.windows_checkout_root)
 
     def _pick_repo(self):
-        log_info("User action: open repository picker")
-        d = self._choose_directory("Select repository folder")
+        log_info("User action: open directory picker mode=%s", self.mode)
+        d = self._choose_directory(
+            "Select folder" if self.mode == "filesystem" else "Select repository folder"
+        )
         if not d:
-            log_info("User action: repository picker cancelled")
+            log_info("User action: directory picker cancelled")
             return
         p = Path(d)
-        if not is_git_repo(p):
-            log_warning("Selected non-git path: %s", p)
-            QMessageBox.warning(self, "Not a Git repository", "The selected folder is not inside a Git working tree.")
-            return
-        root = repo_root(p)
-        self.repo_path = str(root)
+        if self.mode == "filesystem":
+            # Filesystem mode: accept any directory
+            if not p.is_dir():
+                QMessageBox.warning(self, "Invalid folder", "The selected path is not a directory.")
+                return
+            self.repo_path = str(p)
+        else:
+            # Git mode: require a valid git repo
+            if not is_git_repo(p):
+                log_warning("Selected non-git path: %s", p)
+                QMessageBox.warning(self, "Not a Git repository", "The selected folder is not inside a Git working tree.")
+                return
+            root = repo_root(p)
+            self.repo_path = str(root)
         self.repo_edit.setText(self.repo_path)
         self.settings.setValue("last_repo", self.repo_path)
-        log_info("Repository selected: %s", self.repo_path)
+        log_info("Directory selected: %s mode=%s", self.repo_path, self.mode)
         self._update_buttons()
 
     def _choose_directory(self, title: str, start_dir: Optional[Path] = None) -> str:
@@ -363,19 +407,24 @@ class MainWindow(QMainWindow):
                 self.repo_path = str(last)
                 self.repo_edit.setText(self.repo_path)
         if not self.repo_path:
-            log_warning("Scan requested without repository")
-            QMessageBox.information(self, "Select repository", "Please select a repository first.")
+            label = "folder" if self.mode == "filesystem" else "repository"
+            log_warning("Scan requested without %s", label)
+            QMessageBox.information(self, "Select %s" % label, "Please select a %s first." % label)
             return
 
         repo = Path(self.repo_path)
-        if not is_git_repo(repo):
+        if self.mode == "git" and not is_git_repo(repo):
             log_warning("Scan rejected for invalid repository: %s", repo)
             QMessageBox.warning(self, "Invalid repository", "Repository is not a valid Git working tree.")
             return
+        if self.mode == "filesystem" and not repo.is_dir():
+            QMessageBox.warning(self, "Invalid folder", "The selected path is not a directory.")
+            return
 
         log_info(
-            "User action: start scan repo=%s include_ignored=%s scan_submodules=%s",
+            "User action: start scan repo=%s mode=%s include_ignored=%s scan_submodules=%s",
             repo,
+            self.mode,
             self.chk_include_ignored.isChecked(),
             self.chk_scan_submodules.isChecked(),
         )
@@ -392,6 +441,7 @@ class MainWindow(QMainWindow):
             config=self.config,
             include_ignored=self.chk_include_ignored.isChecked(),
             scan_submodules=self.chk_scan_submodules.isChecked(),
+            mode=self.mode,
         )
         self._scan_worker.moveToThread(self._scan_thread)
         self._scan_thread.started.connect(self._scan_worker.run)
@@ -653,19 +703,17 @@ class MainWindow(QMainWindow):
         self._show_details(it)
 
     def _apply_fixes(self):
-        """Apply all fixes in a single unified flow.
+        """Apply all fixes using the appropriate strategy for the current mode.
 
-        For each selected item the method automatically picks the right
-        strategy:
+        **Git mode** (default):
+            * Untracked files are renamed with ``os.rename()`` (no git).
+            * Tracked files are renamed with ``git mv``.
+            * Stash warning only for tracked files.
 
-        * **Untracked** files (not in ``git ls-files``) are renamed directly
-          on disk with ``os.rename()`` — no ``git mv``, no stash.
-        * **Tracked** files are renamed with ``git mv`` as before.
-
-        The confirmation dialog shows every planned rename in one list so the
-        user sees the full picture before committing.
+        **Filesystem mode**:
+            * Every file is renamed with ``os.rename()``.
+            * No git commands, no stash.
         """
-        import os
 
         if not self.items:
             log_warning("Apply fixes requested without scan results")
@@ -673,9 +721,73 @@ class MainWindow(QMainWindow):
             return
 
         repo = Path(self.repo_path)
-        log_info("User action: apply fixes repo=%s selected_items=%s", repo, sum(1 for it in self.items if it.selected))
+        log_info(
+            "User action: apply fixes repo=%s mode=%s selected_items=%s",
+            repo, self.mode, sum(1 for it in self.items if it.selected),
+        )
 
-        # ---- 1.  Plan both kinds of renames ----
+        # ---- 1.  Plan renames (mode-specific) ----
+        if self.mode == "filesystem":
+            all_ops, all_warnings = plan_renames_filesystem(
+                self.items,
+                config=self.config,
+                existing_paths=self.meta.get("all_paths", []),
+            )
+            if not all_ops:
+                QMessageBox.information(self, "No changes", "No renames are planned for the selected items.")
+                return
+
+            # Preview
+            preview_parts: List[str] = []
+            for src, dst in all_ops[:200]:
+                preview_parts.append(f"{src}  ->  {dst}")
+            if len(all_ops) > 200:
+                preview_parts.append(f"\u2026 and {len(all_ops) - 200} more")
+            preview_txt = "\n".join(preview_parts)
+
+            confirm = QMessageBox.question(
+                self,
+                "Confirm apply (Filesystem mode)",
+                f"{len(all_ops)} file(s)/folder(s) will be renamed on disk.\n\nPreview:\n{preview_txt}\n\nProceed?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if confirm != QMessageBox.StandardButton.Yes:
+                return
+
+            # Apply all with os.rename
+            applied: List[Tuple[str, str]] = []
+            for src, dst in all_ops:
+                src_path = repo / src
+                dst_path = repo / dst
+                try:
+                    dst_path.parent.mkdir(parents=True, exist_ok=True)
+                    _os.rename(str(src_path), str(dst_path))
+                    applied.append((src, dst))
+                    log_info("Filesystem rename applied src=%s dst=%s", src, dst)
+                except OSError as e:
+                    all_warnings.append(f"Rename failed for {src} -> {dst}: {e}")
+                    log_warning("Filesystem rename failed src=%s dst=%s err=%s", src, dst, e)
+                    QMessageBox.warning(self, "Rename failed", f"Could not rename:\n{src}\n-> {dst}\n\n{e}")
+                    break
+
+            QMessageBox.information(
+                self,
+                "Apply completed",
+                f"Applied {len(applied)} rename(s) on disk.\n\nNext steps:\n"
+                f"- Review the renamed files\n"
+                f"- Update any scripts/references that use the old names",
+            )
+
+            applied_set = set(applied)
+            for it in self.items:
+                if (it.rel_path, it.proposed_fix) in applied_set:
+                    it.status = "Renamed"
+            self._populate_table()
+            self._start_scan()
+            return
+
+        # ---- Git mode below ----
         from .engine import plan_untracked_renames, plan_renames
 
         tracked_set = set(self.meta.get("tracked_files", []))
@@ -860,13 +972,21 @@ class MainWindow(QMainWindow):
             return
         repo = self.repo_path
         log_info("User action: export report repo=%s", repo)
-        from .engine import plan_renames
-        planned_ops, warnings = plan_renames(
-            self.items,
-            config=self.config,
-            existing_paths=self.meta.get("all_paths", []),
-            tracked_paths=self.meta.get("tracked_files", []),
-        )
+        if self.mode == "filesystem":
+            from .engine import plan_renames_filesystem
+            planned_ops, warnings = plan_renames_filesystem(
+                self.items,
+                config=self.config,
+                existing_paths=self.meta.get("all_paths", []),
+            )
+        else:
+            from .engine import plan_renames
+            planned_ops, warnings = plan_renames(
+                self.items,
+                config=self.config,
+                existing_paths=self.meta.get("all_paths", []),
+                tracked_paths=self.meta.get("tracked_files", []),
+            )
         data = to_json(repo, self.meta, self.items, planned_ops=planned_ops, applied_ops=[], extra_warnings=warnings)
         js = json_dumps(data)
         txt = to_text_summary(repo, planned_ops, warnings)
@@ -916,19 +1036,19 @@ class MainWindow(QMainWindow):
     def _undo_last_run(self):
         if not self.repo_path:
             log_warning("Undo requested without repository")
-            QMessageBox.information(self, "Select repository", "Select a repository first.")
+            QMessageBox.information(self, "Select directory", "Select a directory first.")
             return
         last = load_last_run(self.repo_path)
         if not last:
             log_info("Undo requested but no previous run exists repo=%s", self.repo_path)
-            QMessageBox.information(self, "Nothing to undo", "No previous run found for this repository.")
+            QMessageBox.information(self, "Nothing to undo", "No previous run found for this directory.")
             return
         mapping = last.get("mapping", [])
         if not mapping:
             log_info("Undo requested but stored mapping is empty repo=%s", self.repo_path)
             QMessageBox.information(self, "Nothing to undo", "Stored mapping is empty.")
             return
-        log_info("User action: undo last run repo=%s mapping=%s", self.repo_path, len(mapping))
+        log_info("User action: undo last run repo=%s mapping=%s mode=%s", self.repo_path, len(mapping), self.mode)
 
         preview = "\n".join([f"{s} <- {d}" for s,d in mapping[:200]])
         if len(mapping) > 200:
@@ -936,7 +1056,7 @@ class MainWindow(QMainWindow):
         confirm = QMessageBox.question(
             self,
             "Confirm undo",
-            f"This will attempt to undo the last applied renames using git mv in reverse order.\n\nPreview:\n{preview}\n\nProceed?",
+            f"This will attempt to undo the last applied renames in reverse order.\n\nPreview:\n{preview}\n\nProceed?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )
@@ -945,15 +1065,27 @@ class MainWindow(QMainWindow):
             return
 
         repo = Path(self.repo_path)
-        from .gitutils import git_mv
-        # Reverse order, and swap
+        # Reverse order, and swap src/dst
         reversed_ops = list(reversed(mapping))
         failures = []
-        for src,dst in reversed_ops:
-            ok, msg = git_mv(repo, dst, src, dry_run=False)
-            if not ok:
-                failures.append(f"{dst} -> {src}: {msg}")
-                log_warning("Undo git mv failed src=%s dst=%s msg=%s", dst, src, msg)
+        for src, dst in reversed_ops:
+            if self.mode == "filesystem":
+                # Filesystem undo: just use os.rename
+                src_path = repo / dst
+                dst_path = repo / src
+                try:
+                    dst_path.parent.mkdir(parents=True, exist_ok=True)
+                    _os.rename(str(src_path), str(dst_path))
+                    log_info("Undo filesystem rename applied src=%s dst=%s", dst, src)
+                except OSError as e:
+                    failures.append(f"{dst} -> {src}: {e}")
+                    log_warning("Undo filesystem rename failed src=%s dst=%s err=%s", dst, src, e)
+            else:
+                from .gitutils import git_mv
+                ok, msg = git_mv(repo, dst, src, dry_run=False)
+                if not ok:
+                    failures.append(f"{dst} -> {src}: {msg}")
+                    log_warning("Undo git mv failed src=%s dst=%s msg=%s", dst, src, msg)
         if failures:
             QMessageBox.warning(self, "Undo completed with errors", "Some operations failed:\n" + "\n".join(failures[:20]))
             log_warning("Undo completed with failures count=%s repo=%s", len(failures), self.repo_path)

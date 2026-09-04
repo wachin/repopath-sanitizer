@@ -6,7 +6,7 @@ from typing import Iterable, List, Tuple
 from PyQt6.QtCore import QObject, pyqtSignal
 
 from .diagnostics import log_exception, log_info
-from .engine import build_scan, plan_renames
+from .engine import build_scan, build_scan_filesystem, plan_renames
 from .models import ScanItem
 from .pathrules import ScanConfig
 
@@ -17,12 +17,13 @@ class ScanWorker(QObject):
     cancelled = pyqtSignal(str)
     failed = pyqtSignal(str)
 
-    def __init__(self, repo: Path, config: ScanConfig, include_ignored: bool, scan_submodules: bool):
+    def __init__(self, repo: Path, config: ScanConfig, include_ignored: bool, scan_submodules: bool, *, mode: str = "git"):
         super().__init__()
         self.repo = repo
         self.config = config
         self.include_ignored = include_ignored
         self.scan_submodules = scan_submodules
+        self.mode = mode  # "git" or "filesystem"
         self._cancel = False
 
     def cancel(self):
@@ -30,18 +31,27 @@ class ScanWorker(QObject):
 
     def run(self):
         try:
-            log_info("ScanWorker run start repo=%s", self.repo)
-            self.progress.emit(0, "Listing repository files…")
+            log_info("ScanWorker run start repo=%s mode=%s", self.repo, self.mode)
+            if self.mode == "filesystem":
+                self.progress.emit(0, "Scanning directory tree…")
+            else:
+                self.progress.emit(0, "Listing repository files…")
             if self._cancel:
-                log_info("ScanWorker cancelled before build_scan repo=%s", self.repo)
+                log_info("ScanWorker cancelled before scan repo=%s", self.repo)
                 self.cancelled.emit("Scan cancelled.")
                 return
-            items, meta = build_scan(
-                self.repo,
-                config=self.config,
-                include_ignored=self.include_ignored,
-                scan_submodules=self.scan_submodules,
-            )
+            if self.mode == "filesystem":
+                items, meta = build_scan_filesystem(
+                    self.repo,
+                    config=self.config,
+                )
+            else:
+                items, meta = build_scan(
+                    self.repo,
+                    config=self.config,
+                    include_ignored=self.include_ignored,
+                    scan_submodules=self.scan_submodules,
+                )
             if self._cancel:
                 log_info("ScanWorker cancelled after build_scan repo=%s", self.repo)
                 self.cancelled.emit("Scan cancelled.")

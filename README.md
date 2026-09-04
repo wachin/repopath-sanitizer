@@ -2,9 +2,9 @@ En Linux puedes probar el programa directamente con: `python3 -m repopath_saniti
 
 # RepoPath Sanitizer
 
-A PyQt6 desktop app (Linux-first) that scans a local Git working tree and finds file/folder paths
-that would fail to check out on Windows. It proposes safe fixes and can apply them using **git-aware renames**
-(`git mv`) to preserve history.
+A PyQt6 desktop app (Linux-first) that scans a directory (Git repo or any folder) for file/folder paths
+that would fail on Windows. It proposes safe fixes and can apply them using either **git-aware renames**
+(`git mv`) or **pure filesystem renames** (`os.rename`) depending on the mode.
 
 ![Debian 12 Tested](https://img.shields.io/badge/Debian-12-tested-blue)
 ![Python](https://img.shields.io/badge/Python-3.10+-green)
@@ -14,7 +14,10 @@ that would fail to check out on Windows. It proposes safe fixes and can apply th
 
 ## Features
 
-- Detects Windows-incompatible paths in Git repositories
+- **Two modes: Git Repository / Any Folder (Filesystem)** — toggle in the toolbar
+  - **Git mode**: scans with `git ls-files`, renames tracked files with `git mv`, untracked with `os.rename`
+  - **Filesystem mode**: scans any directory with `os.walk`, renames everything with `os.rename` — zero git dependency
+- Detects Windows-incompatible paths in directories and Git repositories
 - Reports tracked files and normal untracked files; ignored files are optional
 - Git-aware renames (`git mv`) to preserve history
 - **Filesystem renames (`os.rename`) for untracked files** — no git needed
@@ -252,7 +255,16 @@ export REPOPATH_SANITIZER_CHECKOUT_ROOT='C:\Users\Juan\Documents\Projects'
 
 ## How It Works
 
-The scanner:
+### Mode Selection
+
+At the top of the window, a **Mode** dropdown lets you choose:
+
+| Mode | Description |
+|------|-------------|
+| **Git Repository** | Uses `git ls-files` to find files. Renames tracked files with `git mv`, untracked files with `os.rename`. Shows stash warnings for tracked renames. |
+| **Any Folder (Filesystem)** | Uses `os.walk` to find files. No git required at all. Renames everything with `os.rename`. Works on regular project folders that are not git repos. |
+
+### The scanner (Git mode):
 
 1. Uses `git ls-files` to enumerate tracked files and normal untracked files
 2. Validates each path against Windows filesystem rules
@@ -272,13 +284,33 @@ The scanner:
 
 The program **auto-switches** between these two strategies. When you click *Apply Fixes*, it shows a single combined preview with each file labeled `[untracked]` or `[git mv]`, then applies them all in one operation.
 
+### The scanner (Filesystem mode):
+
+1. Uses `os.walk` to enumerate all files and directories
+2. Skips hidden directories (`.git`, `.svn`, etc.) and hidden files
+3. Validates each path against Windows filesystem rules
+4. Detects the same issues as Git mode
+5. Proposes safe sanitized paths
+6. Applies fixes with `os.rename()` — no git commands, no stash
+
 ### Why two strategies?
 
 If you accidentally type a Windows-forbidden character (like `:` or `|`) in a filename on Linux and haven't done `git add` yet, the file is untracked. Using `git mv` on an untracked file would fail. Instead, the program uses `os.rename()` directly — no stash, no git dependency. After renaming, you can `git add` the corrected names.
 
 ### When does the stash warning appear?
 
-The "uncommitted changes" warning only appears when there are **tracked** files that need renaming. If the only issues are with untracked files, the program renames them directly without asking about stash.
+The "uncommitted changes" warning only appears when there are **tracked** files that need renaming (Git mode only). If the only issues are with untracked files, the program renames them directly without asking about stash. In **Filesystem mode**, the stash warning never appears.
+
+### Using Filesystem mode for non-git folders
+
+If you have a regular project folder (not a git repo) and want to check it for Windows compatibility:
+
+1. Switch the **Mode** dropdown to **Any Folder (Filesystem)**
+2. Click **Browse...** and select your folder
+3. Click **Scan**
+4. Review the issues and click **Apply Fixes**
+
+All renames are done with `os.rename()` — no git commands are executed. This is safe for any directory.
 
 For the Windows checkout failure described above, the relevant rule is `trailing spaces/periods`. If a path segment ends in `.` or space, the sanitizer flags it and proposes a trimmed replacement that Windows can store safely.
 
