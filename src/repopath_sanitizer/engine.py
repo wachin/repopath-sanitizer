@@ -257,3 +257,34 @@ def plan_renames(items: List[ScanItem], *, config: ScanConfig, existing_paths: O
         ops.append((it.rel_path, dst))
     log_info("plan_renames finished ops=%s warnings=%s", len(ops), len(warnings))
     return ops, warnings
+
+
+def plan_untracked_renames(
+    items: List[ScanItem], *, config: ScanConfig, tracked_paths: Optional[Iterable[str]] = None
+) -> Tuple[List[Tuple[str, str]], List[str]]:
+    """Plan renames for untracked files using filesystem operations (not git mv).
+
+    These files have not been added to Git yet, so they can be renamed
+    directly on disk.  After renaming, the user can ``git add`` them.
+    """
+    selected = [
+        it
+        for it in items
+        if it.selected
+        and it.proposed_fix
+        and it.proposed_fix != it.rel_path
+        and it.item_type != ItemType.FOLDER
+    ]
+    if tracked_paths is not None:
+        tracked_set = set(tracked_paths)
+        selected = [it for it in selected if it.rel_path not in tracked_set]
+    selected.sort(key=lambda it: (it.rel_path.count("/"), it.rel_path))
+    ops: List[Tuple[str, str]] = []
+    warnings: List[str] = []
+    for it in selected:
+        dst = it.proposed_fix
+        if it.rel_path.startswith(".git/") or dst.startswith(".git/") or it.rel_path == ".git" or dst == ".git":
+            warnings.append(f"Refusing to rename .git internals: {it.rel_path} -> {dst}")
+            continue
+        ops.append((it.rel_path, dst))
+    return ops, warnings
