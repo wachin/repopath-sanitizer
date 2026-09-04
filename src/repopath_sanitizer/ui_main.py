@@ -192,10 +192,18 @@ class MainWindow(QMainWindow):
         self.radio_filesystem.setChecked(True)
         self.radio_filesystem.setStyleSheet(self._RADIO_ACTIVE)
         self.radio_filesystem.toggled.connect(self._on_mode_radio_toggled)
+        self.radio_filesystem.setToolTip(
+            "Scan any directory for Windows-incompatible paths.\n"
+            "Uses os.walk + os.rename. No Git required."
+        )
         mode_l.addWidget(self.radio_filesystem)
 
         self.radio_git = QRadioButton("Git repository")
         self.radio_git.setStyleSheet(self._RADIO_INACTIVE)
+        self.radio_git.setToolTip(
+            "Scan a Git working tree. Renames tracked files with\n"
+            "git mv (preserves history) and untracked with os.rename."
+        )
         mode_l.addWidget(self.radio_git)
 
         mode_l.addSpacing(24)
