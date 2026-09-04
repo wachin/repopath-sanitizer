@@ -154,6 +154,20 @@ class MainWindow(QMainWindow):
         self._build_ui()
         self._update_title()
 
+    # -- styles for the mode radio buttons --
+    _RADIO_ACTIVE = (
+        "QRadioButton { font-weight: bold; color: #1a73e8; }"
+    )
+    _RADIO_INACTIVE = (
+        "QRadioButton { font-weight: normal; color: palette(text); }"
+    )
+    _CHK_DIMMED = (
+        "QCheckBox { color: #999; }"
+    )
+    _CHK_NORMAL = (
+        "QCheckBox { color: palette(text); }"
+    )
+
     def _build_ui(self):
         # Toolbar
         tb = QToolBar("Main")
@@ -168,42 +182,62 @@ class MainWindow(QMainWindow):
         act_undo.triggered.connect(self._undo_last_run)
         tb.addAction(act_undo)
 
-        # Top controls
-        top = QWidget()
-        top_l = QHBoxLayout(top)
+        # -- Mode bar (below toolbar) --
+        mode_bar = QWidget()
+        mode_l = QHBoxLayout(mode_bar)
+        mode_l.setContentsMargins(0, 0, 0, 0)
+        mode_l.setSpacing(8)
+
+        self.radio_filesystem = QRadioButton("Any Folder (no Git)")
+        self.radio_filesystem.setChecked(True)
+        self.radio_filesystem.setStyleSheet(self._RADIO_ACTIVE)
+        self.radio_filesystem.toggled.connect(self._on_mode_radio_toggled)
+        mode_l.addWidget(self.radio_filesystem)
+
+        self.radio_git = QRadioButton("Git repository")
+        self.radio_git.setStyleSheet(self._RADIO_INACTIVE)
+        mode_l.addWidget(self.radio_git)
+
+        mode_l.addSpacing(24)
+
+        self.chk_include_ignored = QCheckBox("Include ignored files")
+        self.chk_include_ignored.setChecked(False)
+        self.chk_include_ignored.setStyleSheet(self._CHK_DIMMED)
+        self.chk_include_ignored.setEnabled(False)
+        mode_l.addWidget(self.chk_include_ignored)
+
+        self.chk_scan_submodules = QCheckBox("Scan submodules (list only)")
+        self.chk_scan_submodules.setChecked(False)
+        self.chk_scan_submodules.setStyleSheet(self._CHK_DIMMED)
+        self.chk_scan_submodules.setEnabled(False)
+        mode_l.addWidget(self.chk_scan_submodules)
+
+        mode_l.addStretch(1)
+
+        # -- Repository row --
+        repo_row = QWidget()
+        repo_l = QHBoxLayout(repo_row)
+        repo_l.setContentsMargins(0, 0, 0, 0)
+        repo_l.setSpacing(6)
+
         self.repo_edit = QLineEdit()
-        self.repo_edit.setPlaceholderText("Select a Git repository…")
+        self.repo_edit.setPlaceholderText("Select a folder…")
         self.repo_edit.setReadOnly(True)
         btn_pick = QPushButton("Browse…")
         btn_pick.clicked.connect(self._pick_repo)
         self.btn_scan = QPushButton("Scan")
         self.btn_scan.clicked.connect(self._start_scan)
 
-        self.chk_include_ignored = QCheckBox("Include ignored files")
-        self.chk_include_ignored.setChecked(False)
-        self.chk_scan_submodules = QCheckBox("Scan submodules (list only)")
-        self.chk_scan_submodules.setChecked(False)
+        repo_l.addWidget(QLabel("Repository:"))
+        repo_l.addWidget(self.repo_edit, 1)
+        repo_l.addWidget(btn_pick)
+        repo_l.addWidget(self.btn_scan)
 
-        # Mode selector
-        top_l.addWidget(QLabel("Mode:"))
-        self.mode_combo = QComboBox()
-        self.mode_combo.addItem("Git Repository", "git")
-        self.mode_combo.addItem("Any Folder (no Git)", "filesystem")
-        self.mode_combo.currentIndexChanged.connect(self._on_mode_changed)
-        top_l.addWidget(self.mode_combo)
-        top_l.addSpacing(12)
-
-        top_l.addWidget(QLabel("Repository:"))
-        top_l.addWidget(self.repo_edit, 1)
-        top_l.addWidget(btn_pick)
-        top_l.addWidget(self.btn_scan)
-        top_l.addSpacing(12)
-        top_l.addWidget(self.chk_include_ignored)
-        top_l.addWidget(self.chk_scan_submodules)
-
-        # Progress row
+        # -- Progress row --
         pr = QWidget()
         pr_l = QHBoxLayout(pr)
+        pr_l.setContentsMargins(0, 0, 0, 0)
+        pr_l.setSpacing(6)
         self.progress = QProgressBar()
         self.progress.setRange(0, 100)
         self.progress.setValue(0)
@@ -215,11 +249,12 @@ class MainWindow(QMainWindow):
         pr_l.addWidget(self.progress_label, 3)
         pr_l.addWidget(self.btn_cancel)
 
-        # Results + details splitter
+        # -- Results + details splitter --
         splitter = QSplitter(Qt.Orientation.Horizontal)
 
         left = QWidget()
         left_l = QVBoxLayout(left)
+        left_l.setContentsMargins(0, 0, 0, 0)
 
         self.master_check = QCheckBox("Select All")
         self.master_check.setChecked(True)
@@ -282,9 +317,10 @@ class MainWindow(QMainWindow):
         splitter.addWidget(right)
         splitter.setSizes([800, 400])
 
-        # Bottom action buttons
+        # -- Bottom action buttons --
         bottom = QWidget()
         bottom_l = QHBoxLayout(bottom)
+        bottom_l.setContentsMargins(0, 0, 0, 0)
         self.btn_apply = QPushButton("Apply Fixes")
         self.btn_apply.clicked.connect(self._apply_fixes)
         self.btn_export = QPushButton("Export Report")
@@ -299,30 +335,61 @@ class MainWindow(QMainWindow):
         bottom_l.addWidget(self.btn_rescan)
         bottom_l.addStretch(1)
 
-        # Main layout
+        # -- Main layout (tight spacing) --
         central = QWidget()
         main_l = QVBoxLayout(central)
-        main_l.addWidget(top)
+        main_l.setContentsMargins(6, 4, 6, 6)
+        main_l.setSpacing(4)
+        main_l.addWidget(mode_bar)
+        main_l.addWidget(repo_row)
         main_l.addWidget(pr)
         main_l.addWidget(splitter, 1)
         main_l.addWidget(bottom)
         self.setCentralWidget(central)
 
+        # Set initial mode
+        self.mode = "filesystem"
         self._update_buttons()
         log_info("MainWindow initialized session_log=%s", session_log_path())
 
-    def _on_mode_changed(self, idx: int):
-        self.mode = self.mode_combo.currentData()
+    # -- Mode switching --
+
+    def _on_mode_radio_toggled(self, checked: bool):
+        """Handle radio button toggle between filesystem and git mode."""
+        if not checked:
+            return  # only handle the one that becomes checked
+        if self.radio_filesystem.isChecked():
+            self.mode = "filesystem"
+        else:
+            self.mode = "git"
         log_info("Mode changed to: %s", self.mode)
+        self._update_mode_ui()
+
+    def _update_mode_ui(self):
+        """Update radio button styles and checkbox states for the current mode."""
+        is_fs = (self.mode == "filesystem")
+
+        # Radio button styles
+        self.radio_filesystem.setStyleSheet(self._RADIO_ACTIVE if is_fs else self._RADIO_INACTIVE)
+        self.radio_git.setStyleSheet(self._RADIO_ACTIVE if not is_fs else self._RADIO_INACTIVE)
+
+        # Disable git-only checkboxes in filesystem mode
+        self.chk_include_ignored.setEnabled(not is_fs)
+        self.chk_scan_submodules.setEnabled(not is_fs)
+        self.chk_include_ignored.setStyleSheet(self._CHK_DIMMED if is_fs else self._CHK_NORMAL)
+        self.chk_scan_submodules.setStyleSheet(self._CHK_DIMMED if is_fs else self._CHK_NORMAL)
+
+        # Placeholder text
+        self.repo_edit.setPlaceholderText(
+            "Select a folder…" if is_fs else "Select a Git repository…"
+        )
+
         self._update_title()
         # Clear current scan results when switching mode
         self.items = []
         self.meta = {}
         self.repo_path = ""
         self.repo_edit.setText("")
-        self.repo_edit.setPlaceholderText(
-            "Select a folder…" if self.mode == "filesystem" else "Select a Git repository…"
-        )
         self.table.setRowCount(0)
         self._update_buttons()
 
@@ -742,7 +809,7 @@ class MainWindow(QMainWindow):
             for src, dst in all_ops[:200]:
                 preview_parts.append(f"{src}  ->  {dst}")
             if len(all_ops) > 200:
-                preview_parts.append(f"\u2026 and {len(all_ops) - 200} more")
+                preview_parts.append(f"… and {len(all_ops) - 200} more")
             preview_txt = "\n".join(preview_parts)
 
             confirm = QMessageBox.question(
