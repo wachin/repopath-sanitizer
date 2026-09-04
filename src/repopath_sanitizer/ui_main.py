@@ -653,174 +653,172 @@ class MainWindow(QMainWindow):
         self._show_details(it)
 
     def _apply_fixes(self):
+        """Apply all fixes in a single unified flow.
+
+        For each selected item the method automatically picks the right
+        strategy:
+
+        * **Untracked** files (not in ``git ls-files``) are renamed directly
+          on disk with ``os.rename()`` — no ``git mv``, no stash.
+        * **Tracked** files are renamed with ``git mv`` as before.
+
+        The confirmation dialog shows every planned rename in one list so the
+        user sees the full picture before committing.
+        """
         import os
+
         if not self.items:
             log_warning("Apply fixes requested without scan results")
             QMessageBox.information(self, "Nothing to apply", "No scan results available.")
             return
+
         repo = Path(self.repo_path)
         log_info("User action: apply fixes repo=%s selected_items=%s", repo, sum(1 for it in self.items if it.selected))
 
-        # --- Phase 1: untracked files (filesystem rename, no git mv needed) ---
-        from .engine import plan_untracked_renames
+        # ---- 1.  Plan both kinds of renames ----
+        from .engine import plan_untracked_renames, plan_renames
+
+        tracked_set = set(self.meta.get("tracked_files", []))
+
         untracked_ops, untracked_warnings = plan_untracked_renames(
             self.items,
             config=self.config,
-            tracked_paths=self.meta.get("tracked_files", []),
+            tracked_paths=tracked_set,
         )
-        untracked_applied: List[Tuple[str,str]] = []
-        if untracked_ops:
-            log_info("Untracked renames planned=%s", len(untracked_ops))
-            preview_lines = [f"{s} -> {d}" for s,d in untracked_ops[:200]]
-            if len(untracked_ops) > 200:
-                preview_lines.append(f"… and {len(untracked_ops)-200} more")
-            preview_txt = "\n".join(preview_lines)
-            confirm = QMessageBox.question(
-                self,
-                "Rename untracked files",
-                f"{len(untracked_ops)} file(s) have not been added to Git yet (untracked).\n"
-                f"These will be renamed directly on disk — no stash or git mv needed.\n\n"
-                f"After renaming, you can ``git add`` the new names.\n\n"
-                f"Preview:\n{preview_txt}\n\nProceed?",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                QMessageBox.StandardButton.Yes,
-            )
-            if confirm != QMessageBox.StandardButton.Yes:
-                log_info("Untracked renames cancelled by user")
-            else:
-                for src, dst in untracked_ops:
-                    src_path = repo / src
-                    dst_path = repo / dst
-                    try:
-                        dst_path.parent.mkdir(parents=True, exist_ok=True)
-                        os.rename(str(src_path), str(dst_path))
-                        untracked_applied.append((src, dst))
-                        log_info("Untracked rename applied src=%s dst=%s", src, dst)
-                    except OSError as e:
-                        log_warning("Untracked rename failed src=%s dst=%s err=%s", src, dst, e)
-                        QMessageBox.warning(self, "Rename failed", f"Could not rename:\n{src}\n-> {dst}\n\n{e}")
-                        break
-                log_info("Untracked renames applied=%s", len(untracked_applied))
-
-        # --- Phase 2: tracked files (git mv) ---
-        from .engine import plan_renames
         tracked_ops, tracked_warnings = plan_renames(
             self.items,
             config=self.config,
             existing_paths=self.meta.get("all_paths", []),
-            tracked_paths=self.meta.get("tracked_files", []),
+            tracked_paths=tracked_set,
         )
-        all_warnings = untracked_warnings + tracked_warnings
-        do_stash = False
 
-        if tracked_ops:
-            # Safety: uncommitted changes (only relevant for tracked files)
-            if has_uncommitted_changes(repo):
-                log_warning("Repository has uncommitted changes before apply: %s", repo)
-                msg = QMessageBox(self)
-                msg.setWindowTitle("Uncommitted changes detected")
-                msg.setText("This repository has uncommitted changes. Applying renames may complicate your working tree.")
-                msg.setInformativeText("Choose what to do:")
-                btn_abort = msg.addButton("Abort", QMessageBox.ButtonRole.RejectRole)
-                btn_continue = msg.addButton("Continue anyway", QMessageBox.ButtonRole.AcceptRole)
-                btn_stash = msg.addButton("Auto-stash (recommended)", QMessageBox.ButtonRole.ActionRole)
-                msg.setDefaultButton(btn_stash)
-                msg.exec()
-                clicked = msg.clickedButton()
-                if clicked == btn_abort:
-                    log_info("Apply fixes aborted by user due to uncommitted changes")
-                else:
-                    do_stash = (clicked == btn_stash)
-            else:
-                do_stash = False
-
-            # Preview
-            preview_lines = [f"{s} -> {d}" for s,d in tracked_ops[:200]]
-            if len(tracked_ops) > 200:
-                preview_lines.append(f"… and {len(tracked_ops)-200} more")
-            preview_txt = "\n".join(preview_lines)
-            confirm = QMessageBox.question(
-                self,
-                "Confirm apply",
-                f"This will apply {len(tracked_ops)} git mv operation(s).\n\nPreview:\n{preview_txt}\n\nProceed?",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                QMessageBox.StandardButton.No,
-            )
-            if confirm != QMessageBox.StandardButton.Yes:
-                log_info("Apply fixes cancelled at confirmation")
-            else:
-                stashed = False
-                if do_stash:
-                    stashed = stash_push(repo)
-                    if not stashed:
-                        log_warning("Auto-stash failed for repo=%s", repo)
-                        QMessageBox.warning(self, "Stash failed", "Could not stash changes. Aborting for safety.")
-                    else:
-                        log_info("Auto-stash created for repo=%s", repo)
-                if do_stash and not stashed:
-                    pass  # stash failed, skip tracked renames
-                else:
-                    from .gitutils import git_mv
-                    tracked_applied: List[Tuple[str,str]] = []
-                    for src, dst in tracked_ops:
-                        ok, msg = git_mv(repo, src, dst, dry_run=False)
-                        if not ok:
-                            all_warnings.append(f"git mv failed for {src} -> {dst}: {msg}")
-                            log_warning("git mv failed src=%s dst=%s msg=%s", src, dst, msg)
-                            break
-                        tracked_applied.append((src, dst))
-                        log_info("git mv applied src=%s dst=%s", src, dst)
-
-                    if tracked_applied:
-                        save_last_run(self.repo_path, tracked_applied, {
-                            "timestamp": self.meta.get("timestamp"),
-                            "planned": tracked_ops,
-                            "warnings": all_warnings,
-                        })
-                        log_info("Saved rollback plan repo=%s applied=%s", self.repo_path, len(tracked_applied))
-
-                    if stashed:
-                        restored = stash_pop(repo)
-                        log_info("Auto-stash restore repo=%s restored=%s", repo, restored)
-                        if not restored:
-                            log_warning("Auto-stash restore FAILED repo=%s", repo)
-                            QMessageBox.warning(self, "Stash restore failed", "Your stashed changes could not be restored automatically.\n\nRun 'git stash pop' manually when you are ready.")
-
-                    untracked_applied = untracked_applied  # already done above
-                    all_applied = untracked_applied + tracked_applied
-                    QMessageBox.information(
-                        self,
-                        "Apply completed",
-                        f"Applied {len(all_applied)} rename(s).\n\n"
-                        f"- {len(untracked_applied)} untracked file(s) renamed on disk\n"
-                        f"- {len(tracked_applied)} tracked file(s) renamed via git mv\n\n"
-                        f"Next steps:\n- Run tests\n- ``git add`` any renamed untracked files\n- Review git status/diff\n- Commit and push",
-                    )
-                    applied_set = set(all_applied)
-                    for it in self.items:
-                        if (it.rel_path, it.proposed_fix) in applied_set:
-                            it.status = "Renamed"
-                    self._populate_table()
-                    self._start_scan()
-                    return
-
-        # If only untracked renames were applied (no tracked ops, or tracked cancelled)
-        if untracked_applied:
-            QMessageBox.information(
-                self,
-                "Apply completed",
-                f"Applied {len(untracked_applied)} untracked file rename(s) on disk.\n\n"
-                f"Next steps:\n- ``git add`` the renamed files\n- Review and commit",
-            )
-            applied_set = set(untracked_applied)
-            for it in self.items:
-                if (it.rel_path, it.proposed_fix) in applied_set:
-                    it.status = "Renamed"
-            self._populate_table()
-            self._start_scan()
-        elif not untracked_ops and not tracked_ops:
+        if not untracked_ops and not tracked_ops:
             log_info("Apply fixes found no planned renames")
             QMessageBox.information(self, "No changes", "No renames are planned for the selected items.")
+            return
+
+        all_warnings = untracked_warnings + tracked_warnings
+
+        # ---- 2.  Build a combined preview ----
+        preview_parts: List[str] = []
+        for src, dst in untracked_ops[:200]:
+            preview_parts.append(f"{src}  ->  {dst}   [untracked]")
+        for src, dst in tracked_ops[:200 - len(preview_parts)]:
+            preview_parts.append(f"{src}  ->  {dst}   [git mv]")
+        remaining = len(untracked_ops) + len(tracked_ops) - len(preview_parts)
+        if remaining > 0:
+            preview_parts.append(f"… and {remaining} more")
+
+        preview_txt = "\n".join(preview_parts)
+
+        summary = (
+            f"{len(untracked_ops)} untracked file(s) will be renamed on disk (os.rename).\n"
+            f"{len(tracked_ops)} tracked file(s) will be renamed via git mv."
+        )
+
+        confirm = QMessageBox.question(
+            self,
+            "Confirm apply",
+            f"{summary}\n\nPreview:\n{preview_txt}\n\nProceed?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if confirm != QMessageBox.StandardButton.Yes:
+            log_info("Apply fixes cancelled at confirmation")
+            return
+
+        # ---- 3.  Handle stash (only needed for tracked renames) ----
+        stashed = False
+        if tracked_ops and has_uncommitted_changes(repo):
+            log_warning("Repository has uncommitted changes before apply: %s", repo)
+            msg = QMessageBox(self)
+            msg.setWindowTitle("Uncommitted changes detected")
+            msg.setText("The repository has uncommitted changes. Applying tracked renames may complicate your working tree.")
+            msg.setInformativeText("Choose what to do:")
+            btn_abort = msg.addButton("Abort", QMessageBox.ButtonRole.RejectRole)
+            btn_continue = msg.addButton("Continue anyway", QMessageBox.ButtonRole.AcceptRole)
+            btn_stash = msg.addButton("Auto-stash (recommended)", QMessageBox.ButtonRole.ActionRole)
+            msg.setDefaultButton(btn_stash)
+            msg.exec()
+            clicked = msg.clickedButton()
+            if clicked == btn_abort:
+                log_info("Apply fixes aborted by user due to uncommitted changes")
+                return
+            if clicked == btn_stash:
+                stashed = stash_push(repo)
+                if not stashed:
+                    log_warning("Auto-stash failed for repo=%s", repo)
+                    QMessageBox.warning(self, "Stash failed", "Could not stash changes. Aborting for safety.")
+                    return
+                log_info("Auto-stash created for repo=%s", repo)
+
+        # ---- 4.  Apply untracked renames (filesystem) ----
+        untracked_applied: List[Tuple[str, str]] = []
+        for src, dst in untracked_ops:
+            src_path = repo / src
+            dst_path = repo / dst
+            try:
+                dst_path.parent.mkdir(parents=True, exist_ok=True)
+                os.rename(str(src_path), str(dst_path))
+                untracked_applied.append((src, dst))
+                log_info("Untracked rename applied src=%s dst=%s", src, dst)
+            except OSError as e:
+                log_warning("Untracked rename failed src=%s dst=%s err=%s", src, dst, e)
+                all_warnings.append(f"Filesystem rename failed for {src} -> {dst}: {e}")
+                QMessageBox.warning(self, "Rename failed", f"Could not rename:\n{src}\n-> {dst}\n\n{e}")
+                break
+        log_info("Untracked renames applied=%s of %s", len(untracked_applied), len(untracked_ops))
+
+        # ---- 5.  Apply tracked renames (git mv) ----
+        tracked_applied: List[Tuple[str, str]] = []
+        if tracked_ops:
+            from .gitutils import git_mv
+            for src, dst in tracked_ops:
+                ok, msg = git_mv(repo, src, dst, dry_run=False)
+                if not ok:
+                    all_warnings.append(f"git mv failed for {src} -> {dst}: {msg}")
+                    log_warning("git mv failed src=%s dst=%s msg=%s", src, dst, msg)
+                    break
+                tracked_applied.append((src, dst))
+                log_info("git mv applied src=%s dst=%s", src, dst)
+
+            if tracked_applied:
+                save_last_run(self.repo_path, tracked_applied, {
+                    "timestamp": self.meta.get("timestamp"),
+                    "planned": tracked_ops,
+                    "warnings": all_warnings,
+                })
+                log_info("Saved rollback plan repo=%s applied=%s", self.repo_path, len(tracked_applied))
+
+            if stashed:
+                restored = stash_pop(repo)
+                log_info("Auto-stash restore repo=%s restored=%s", repo, restored)
+                if not restored:
+                    log_warning("Auto-stash restore FAILED repo=%s", repo)
+                    QMessageBox.warning(self, "Stash restore failed", "Your stashed changes could not be restored automatically.\n\nRun 'git stash pop' manually when you are ready.")
+
+        # ---- 6.  Show result ----
+        all_applied = untracked_applied + tracked_applied
+        QMessageBox.information(
+            self,
+            "Apply completed",
+            f"Applied {len(all_applied)} rename(s).\n\n"
+            f"• {len(untracked_applied)} untracked file(s) renamed on disk\n"
+            f"• {len(tracked_applied)} tracked file(s) renamed via git mv\n\n"
+            f"Next steps:\n"
+            f"- Run tests\n"
+            f"- ``git add`` any renamed untracked files\n"
+            f"- Review git status/diff\n"
+            f"- Commit and push",
+        )
+
+        # ---- 7.  Update UI ----
+        applied_set = set(all_applied)
+        for it in self.items:
+            if (it.rel_path, it.proposed_fix) in applied_set:
+                it.status = "Renamed"
+        self._populate_table()
+        self._start_scan()
 
     def _run_apply(self, dry_run: bool):
         repo = Path(self.repo_path)

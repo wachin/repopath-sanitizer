@@ -6,44 +6,19 @@ from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
 from .constants import DEFAULT_WIN_MAX_PATH, DEFAULT_WIN_MAX_SEGMENT
+from .windows_rules import (
+    FORBIDDEN_CHARS,
+    RESERVED_DEVICE_NAMES,
+    SUBSTITUTIONS,
+    MULTISPACE_RE,
+    contains_forbidden as _contains_forbidden,
+    has_trailing_space_or_period as _has_trailing_space_or_period,
+    is_reserved_device_name as _is_reserved_device,
+    normalize_nfc as _normalize_nfc,
+)
 
-FORBIDDEN_CHARS = set('<>:"/\\|?*')
-# Control chars 0-31
+# Backward-compatible aliases
 CONTROL_RE = re.compile(r"[\x00-\x1F]")
-
-RESERVED_DEVICE_NAMES = {
-    "CON","PRN","AUX","NUL",
-    *{f"COM{i}" for i in range(1, 10)},
-    *{f"LPT{i}" for i in range(1, 10)},
-}
-
-MULTISPACE_RE = re.compile(r" {2,}")
-
-SUBSTITUTIONS = {
-    ":": " -",
-    "|": "-",
-    "\\": "-",
-    "/": "-",
-    "<": "",
-    ">": "",
-    '"': "",
-    "?": "",
-    "*": "",
-}
-
-def _is_reserved_device(seg: str) -> bool:
-    # Windows checks device names per segment, ignoring extension
-    base = seg.split(".")[0]
-    return base.upper() in RESERVED_DEVICE_NAMES
-
-def _has_trailing_space_or_period(seg: str) -> bool:
-    return seg.endswith(" ") or seg.endswith(".")
-
-def _contains_forbidden(seg: str) -> bool:
-    return any(c in FORBIDDEN_CHARS for c in seg) or bool(CONTROL_RE.search(seg))
-
-def _normalize_nfc(s: str) -> str:
-    return unicodedata.normalize("NFC", s)
 
 def windows_casefold_path(rel_path: str) -> str:
     # Use casefold for better Unicode case-insensitive comparisons
