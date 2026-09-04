@@ -126,6 +126,128 @@ class SettingsDialog(QDialog):
         )
 
 
+class AboutDialog(QDialog):
+    """Show program information: author, license, links, technologies.
+
+    The window has two sections: the application icon on the left (large
+    and vertically centered) and the text on the right.  The email and the
+    website are clickable links that open the system mail client or the
+    default web browser.
+    """
+
+    EMAIL = "linuxfrontier@proton.me"
+    WEBSITE = "https://github.com/wachin/repopath-sanitizer"
+    COPYRIGHT = "\u00a9 2026 Washington Indacochea Delgado"
+    LICENSE = "GPL-3.0"
+
+    def __init__(self, parent: QWidget):
+        super().__init__(parent)
+        self.setWindowTitle(f"About {APP_NAME}")
+        self.setModal(True)
+        self.setMinimumWidth(560)
+
+        outer = QVBoxLayout(self)
+
+        # Main horizontal section: icon left, text right
+        main = QHBoxLayout()
+        main.setSpacing(24)
+
+        # Left: large centered icon
+        icon_label = QLabel()
+        icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        icon_label.setFixedSize(160, 160)
+        icon = self._load_icon()
+        if icon is not None and not icon.isNull():
+            icon_label.setPixmap(icon.pixmap(120, 120))
+        else:
+            icon_label.setText(APP_NAME[:1])
+            icon_label.setStyleSheet("font-size: 72px; font-weight: bold; color: #3b82f6;")
+        main.addWidget(icon_label, 0, Qt.AlignmentFlag.AlignVCenter)
+
+        # Right: text block
+        text = QVBoxLayout()
+        text.setSpacing(6)
+
+        title = QLabel(APP_NAME)
+        title.setStyleSheet("font-size: 22px; font-weight: bold;")
+        text.addWidget(title)
+
+        version = QLabel("Version 0.1.0")
+        version.setStyleSheet("color: palette(mid);")
+        text.addWidget(version)
+
+        text.addSpacing(6)
+
+        description = QLabel(
+            "Scans project folders and Git repositories for file and folder names that would "
+            "fail on Windows (forbidden characters, long paths, reserved names, etc.) and fixes "
+            "them safely, with or without Git."
+        )
+        description.setWordWrap(True)
+        text.addWidget(description)
+
+        text.addSpacing(8)
+
+        # Clickable email
+        email_label = QLabel(
+            f'Email: <a href="mailto:{self.EMAIL}" style="color:#1a73e8; text-decoration:none;">{self.EMAIL}</a>'
+        )
+        email_label.setTextInteractionFlags(Qt.TextInteractionFlag.LinksAccessibleByMouse)
+        email_label.linkActivated.connect(self._open_link)
+        text.addWidget(email_label)
+
+        # Clickable website
+        website_label = QLabel(
+            f'Website: <a href="{self.WEBSITE}" style="color:#1a73e8; text-decoration:none;">{self.WEBSITE}</a>'
+        )
+        website_label.setTextInteractionFlags(Qt.TextInteractionFlag.LinksAccessibleByMouse)
+        website_label.linkActivated.connect(self._open_link)
+        text.addWidget(website_label)
+
+        text.addWidget(QLabel(f"License: {self.LICENSE}"))
+        text.addWidget(QLabel(f"Copyright: {self.COPYRIGHT}"))
+
+        text.addSpacing(8)
+
+        technologies = QLabel("Technologies used: Python, PyQt6, Git")
+        technologies.setStyleSheet("color: palette(mid);")
+        text.addWidget(technologies)
+
+        text.addStretch(1)
+
+        main.addLayout(text, 1)
+        outer.addLayout(main)
+
+        # Close button
+        btns = QHBoxLayout()
+        close_btn = QPushButton("Close")
+        close_btn.clicked.connect(self.accept)
+        btns.addStretch(1)
+        btns.addWidget(close_btn)
+        outer.addLayout(btns)
+
+    @staticmethod
+    def _load_icon() -> Optional[QIcon]:
+        """Load the application icon from data/ or system paths."""
+        from .__main__ import _resolve_icon_path
+
+        icon_path = _resolve_icon_path()
+        if icon_path is not None:
+            return QIcon(str(icon_path))
+        return None
+
+    def _open_link(self, url: str):
+        """Open a mailto: or http(s): link with the system handler."""
+        log_info("About dialog opening link: %s", url)
+        qurl = QUrl(url)
+        if qurl.scheme() == "mailto":
+            # Build the mailto URL explicitly so the OS mail client is used
+            qurl = QUrl.fromUserInput(f"mailto:{self.EMAIL}")
+        if not QDesktopServices.openUrl(qurl):
+            log_warning("Failed to open link: %s", url)
+            QMessageBox.warning(self, "Open failed", f"Could not open:\n{url}")
+
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -193,6 +315,10 @@ class MainWindow(QMainWindow):
         act_undo = QAction("Undo last run", self)
         act_undo.triggered.connect(self._undo_last_run)
         tb.addAction(act_undo)
+
+        act_about = QAction("About", self)
+        act_about.triggered.connect(self._open_about)
+        tb.addAction(act_about)
 
         # -- Mode bar (below toolbar) --
         mode_bar = QWidget()
@@ -425,6 +551,11 @@ class MainWindow(QMainWindow):
             self.settings.setValue("max_path", self.config.max_path)
             self.settings.setValue("max_segment", self.config.max_segment)
             self.settings.setValue("windows_checkout_root", self.config.windows_checkout_root)
+
+    def _open_about(self):
+        log_info("User action: open About dialog")
+        dlg = AboutDialog(self)
+        dlg.exec()
 
     def _pick_repo(self):
         log_info("User action: open directory picker mode=%s", self.mode)
