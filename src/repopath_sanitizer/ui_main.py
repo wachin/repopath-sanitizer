@@ -204,6 +204,7 @@ class MainWindow(QMainWindow):
             "Scan a Git working tree. Renames tracked files with\n"
             "git mv (preserves history) and untracked with os.rename."
         )
+        self.radio_git.toggled.connect(self._on_mode_radio_toggled)
         mode_l.addWidget(self.radio_git)
 
         mode_l.addSpacing(24)
@@ -229,14 +230,14 @@ class MainWindow(QMainWindow):
         repo_l.setSpacing(6)
 
         self.repo_edit = QLineEdit()
-        self.repo_edit.setPlaceholderText("Select a folder…")
+        self.repo_edit.setPlaceholderText("Select a folder or repository")
         self.repo_edit.setReadOnly(True)
         btn_pick = QPushButton("Browse…")
         btn_pick.clicked.connect(self._pick_repo)
         self.btn_scan = QPushButton("Scan")
         self.btn_scan.clicked.connect(self._start_scan)
 
-        repo_l.addWidget(QLabel("Repository:"))
+        repo_l.addWidget(QLabel("Folder or Repo:"))
         repo_l.addWidget(self.repo_edit, 1)
         repo_l.addWidget(btn_pick)
         repo_l.addWidget(self.btn_scan)
@@ -387,10 +388,8 @@ class MainWindow(QMainWindow):
         self.chk_include_ignored.setStyleSheet(self._CHK_DIMMED if is_fs else self._CHK_NORMAL)
         self.chk_scan_submodules.setStyleSheet(self._CHK_DIMMED if is_fs else self._CHK_NORMAL)
 
-        # Placeholder text
-        self.repo_edit.setPlaceholderText(
-            "Select a folder…" if is_fs else "Select a Git repository…"
-        )
+        # Placeholder text (single generic hint for both modes)
+        self.repo_edit.setPlaceholderText("Select a folder or repository")
 
         self._update_title()
         # Clear current scan results when switching mode
