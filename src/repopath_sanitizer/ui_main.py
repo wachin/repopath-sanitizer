@@ -130,6 +130,7 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle(APP_NAME)
+        self._set_app_icon()
         self.settings = QSettings(ORG_NAME, "RepoPathSanitizer")
         self.setMinimumSize(960, 540)
         self._restore_geometry()
@@ -153,6 +154,17 @@ class MainWindow(QMainWindow):
 
         self._build_ui()
         self._update_title()
+
+    def _set_app_icon(self):
+        """Set the window icon, resolving it from data/ or system paths."""
+        from .__main__ import _resolve_icon_path
+
+        icon_path = _resolve_icon_path()
+        if icon_path is not None:
+            self.setWindowIcon(QIcon(str(icon_path)))
+            log_info("MainWindow icon set from %s", icon_path)
+        else:
+            log_warning("MainWindow icon not found")
 
     # -- styles for the mode radio buttons --
     _RADIO_ACTIVE = (

@@ -2,10 +2,39 @@ from __future__ import annotations
 
 import os
 import sys
+from pathlib import Path
+from typing import Optional
 
 from .cli import build_parser, run_cli
 from .constants import APP_NAME, ORG_NAME
-from .diagnostics import log_exception, log_info
+from .diagnostics import log_exception, log_info, log_warning
+
+
+def _resolve_icon_path() -> Optional[Path]:
+    """Return the first existing application icon path.
+
+    Prefers the fancy icon shipped in ``data/icons/``, then the simpler
+    ``data/repopath-sanitizer.svg``, then the system-installed icon used by
+    the Debian package.  Works both when running from the source tree and
+    when installed system-wide.
+    """
+    project_root = Path(__file__).resolve().parents[2]
+    candidates = [
+        # Source tree: fancy icon
+        project_root / "data" / "icons" / "repopath-sanitizer.svg",
+        # Source tree: simple icon
+        project_root / "data" / "repopath-sanitizer.svg",
+        # Relative to the current working directory
+        Path("data/icons/repopath-sanitizer.svg"),
+        Path("data/repopath-sanitizer.svg"),
+        # Installed system icon (Debian package / desktop entry)
+        Path("/usr/share/icons/hicolor/scalable/apps/repopath-sanitizer.svg"),
+        Path("/usr/share/pixmaps/repopath-sanitizer.svg"),
+    ]
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate
+    return None
 
 
 def _configure_qt_platform_theme_for_gui() -> None:
@@ -29,6 +58,7 @@ def main() -> int:
 
     _configure_qt_platform_theme_for_gui()
 
+    from PyQt6.QtGui import QIcon
     from PyQt6.QtWidgets import QApplication
 
     from .ui_main import MainWindow
@@ -36,6 +66,14 @@ def main() -> int:
     app = QApplication(sys.argv)
     app.setApplicationName(APP_NAME)
     app.setOrganizationName(ORG_NAME)
+
+    icon_path = _resolve_icon_path()
+    if icon_path is not None:
+        app.setWindowIcon(QIcon(str(icon_path)))
+        log_info("Application icon loaded: %s", icon_path)
+    else:
+        log_warning("Application icon not found; using default window icon")
+
     w = MainWindow()
     w.show()
     rc = app.exec()

@@ -99,15 +99,13 @@ and the fix is applied automatically.
 
 ## Linux File Dialog Fix
 
-If the `Browse...` or `Save Log` dialogs are extremely slow on Linux, the cause may be the Qt platform theme backend, not the repository scan itself.
-
-In this project, the problem appeared when the GUI was launched with:
+If yo use this program in a non KDE Linux, when the GUI was launched with:
 
 ```bash
 QT_QPA_PLATFORMTHEME=qt5ct
 ```
 
-Under that backend, opening or cancelling a Qt file dialog could take many seconds.
+Under that backend, yo cannot search for folders o files with "Ctrl + F"
 
 In this project, the solution is already integrated in the code. RepoPath Sanitizer detects Linux GUI startup and, before creating `QApplication`, it checks `QT_QPA_PLATFORMTHEME`. If the value is empty or `qt5ct`, it changes it to `gtk3`.
 
@@ -118,9 +116,7 @@ In this environment, the GTK3-backed dialog behaved better than the Qt dialog ba
 
 - file dialogs opened immediately
 - the search box worked correctly
-- bookmarks/places worked correctly
-
-With the Qt-side dialog backend, those features were either slow or not working well.
+- bookmarks places from GTK worked correctly
 
 ### How the integrated fix works
 
