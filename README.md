@@ -87,16 +87,6 @@ This program was tested on **Debian 12 (Bookworm)**.
 
 ---
 
-### Launch the program
-
-Launch the program normally with:
-
-```bash
-python3 -m repopath_sanitizer
-```
-
-and the fix is applied automatically.
-
 ## Linux File Dialog Fix
 
 If yo use this program in a non KDE Linux, when the GUI was launched with:
@@ -152,17 +142,17 @@ This affects GUI dialogs such as:
 
 ---
 
-## PyQt6 on Debian (VERY IMPORTANT)
+## Run directly on Debian, Ubuntu
 
-On Debian, installing **PyQt6 via pip** may fail because it tries to build from source and requires a full Qt development environment.
-
-For this reason, on Debian it is recommended to use **the system PyQt6 package (APT)**. Using `pip` and a virtual environment is optional; if your dependencies are already installed from the Debian 12 repositories, you can test the program directly without creating a `venv`:
+On Debian you can use **the system PyQt6 package (APT)**.  if your dependencies are already installed from the Debian repositories, you can test the program directly without creating a `venv`:
 
 ```bash
 python3 -m repopath_sanitizer
 ```
 
-### Optional editable install with pip
+## Run under venv 
+
+Using `pip` and a virtual environment if you need
 
 ```bash
 sudo apt update
@@ -176,6 +166,8 @@ pip install -e .[dev] --no-deps
 
 repopath-sanitizer
 ```
+
+Explanation
 
 `--system-site-packages` allows the virtual environment to use PyQt6 installed via APT.  
 `--no-deps` prevents pip from trying to reinstall PyQt6 from PyPI.
